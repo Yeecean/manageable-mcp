@@ -77,10 +77,10 @@ function parseParameters(value: string | undefined): Record<string, unknown> {
   try {
     parsed = JSON.parse(value);
   } catch (error) {
-    throw parametersError(`Parameters must be valid JSON: ${errorMessage(error)}`);
+    throw parametersError(`参数必须是有效的 JSON：${errorMessage(error)}`);
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw parametersError('Parameters must be a JSON object');
+    throw parametersError('参数必须是 JSON 对象');
   }
   return parsed as Record<string, unknown>;
 }
@@ -88,7 +88,7 @@ function parseParameters(value: string | undefined): Record<string, unknown> {
 export function parseOneShotCommand(args: string[]): OneShotCommand {
   const rawKind = args[0];
   if (rawKind === undefined || !ONE_SHOT_COMMANDS.has(rawKind)) {
-    throw parametersError(`Unknown client command '${rawKind ?? ''}'`);
+    throw parametersError(`未知客户端命令 '${rawKind ?? ''}'`);
   }
   const kind = rawKind as OneShotCommandKind;
 
@@ -105,10 +105,10 @@ export function parseOneShotCommand(args: string[]): OneShotCommand {
     if (ONE_SHOT_VALUE_FLAGS.has(arg)) {
       const value = args[i + 1];
       if (value === undefined || value.length === 0) {
-        throw parametersError(`${arg} requires a value`);
+        throw parametersError(`${arg} 需要提供值`);
       }
       if (value.startsWith('-') && !(arg === '--params-file' && value === '-')) {
-        throw parametersError(`${arg} requires a value`);
+        throw parametersError(`${arg} 需要提供值`);
       }
       if (arg === '--url') {
         url = value;
@@ -119,7 +119,7 @@ export function parseOneShotCommand(args: string[]): OneShotCommand {
       } else {
         const seconds = Number(value);
         if (!Number.isFinite(seconds) || seconds <= 0) {
-          throw parametersError('--timeout must be a positive number of seconds');
+          throw parametersError('--timeout 必须是大于 0 的秒数');
         }
         timeoutMs = seconds * 1_000;
       }
@@ -130,17 +130,17 @@ export function parseOneShotCommand(args: string[]): OneShotCommand {
     } else if (arg === '-') {
       positional.push(arg);
     } else if (arg.startsWith('-')) {
-      throw parametersError(`Unknown flag for ${kind}: ${arg}`);
+      throw parametersError(`命令 ${kind} 不支持选项 ${arg}`);
     } else {
       positional.push(arg);
     }
   }
 
   if (wait && kind !== 'auth') {
-    throw parametersError('--wait is only valid with auth');
+    throw parametersError('--wait 仅适用于 auth');
   }
   if (paramsFile !== undefined && kind !== 'call') {
-    throw parametersError('--params-file is only valid with call');
+    throw parametersError('--params-file 仅适用于 call');
   }
 
   const flags = {
@@ -153,13 +153,13 @@ export function parseOneShotCommand(args: string[]): OneShotCommand {
 
   if (kind === 'call') {
     if (positional.length < 2 || positional.length > 3) {
-      throw parametersError(`Usage: ${usage(kind)}`);
+      throw parametersError(`用法：${usage(kind)}`);
     }
     const server = positional[0] as string;
     const command = positional[1] as string;
     const positionalParameters = positional[2];
     if (paramsFile !== undefined && positionalParameters !== undefined) {
-      throw parametersError('Use either positional parameters or --params-file, not both');
+      throw parametersError('位置参数与 --params-file 只能二选一');
     }
     const source = paramsFile ?? (positionalParameters === '-' ? '-' : undefined);
     return {
@@ -175,14 +175,14 @@ export function parseOneShotCommand(args: string[]): OneShotCommand {
 
   if (kind === 'list-commands') {
     if (positional.length !== 1) {
-      throw parametersError(`Usage: ${usage(kind)}`);
+      throw parametersError(`用法：${usage(kind)}`);
     }
     return { kind, server: positional[0] as string, ...flags };
   }
 
   if (kind === 'describe') {
     if (positional.length < 2) {
-      throw parametersError(`Usage: ${usage(kind)}`);
+      throw parametersError(`用法：${usage(kind)}`);
     }
     return {
       kind,
@@ -193,7 +193,7 @@ export function parseOneShotCommand(args: string[]): OneShotCommand {
   }
 
   if (positional.length !== 1) {
-    throw parametersError(`Usage: ${usage(kind)}`);
+    throw parametersError(`用法：${usage(kind)}`);
   }
   return { kind, server: positional[0] as string, ...flags };
 }
@@ -206,10 +206,10 @@ function envValue(name: string): string | undefined {
 function daemonUnavailable(tried: string): AppError {
   return new AppError(
     'SERVER_UNAVAILABLE',
-    'No manageable-mcp HTTP daemon is available.\n' +
-      `Tried: ${sanitizeErrorMessage(tried)}\n` +
-      'Start one with: manageable-mcp --transport http --cli\n' +
-      'Or select a daemon with --url <URL>.',
+    '没有可用的 manageable-mcp HTTP 守护进程。\n' +
+      `已尝试：${sanitizeErrorMessage(tried)}\n` +
+      '可通过以下命令启动：manageable-mcp --transport http --cli\n' +
+      '或使用 --url <URL> 指定守护进程。',
   );
 }
 
@@ -245,7 +245,7 @@ export function resolveOneShotEndpoint(
   const authToken = command.authToken ?? envToken ?? discovered.authToken;
   return {
     url: discovered.url,
-    source: 'CLI endpoint file',
+    source: 'CLI 端点文件',
     discovered,
     ...(authToken === undefined ? {} : { authToken }),
   };
@@ -262,7 +262,7 @@ function loadCallParameters(command: OneShotCommand): Record<string, unknown> {
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw parametersError(
-      `Could not read parameters from ${command.paramsFile}: ${sanitizeErrorMessage(errorMessage(error))}`,
+      `无法从 ${command.paramsFile} 读取参数：${sanitizeErrorMessage(errorMessage(error))}`,
     );
   }
 }
@@ -355,13 +355,13 @@ async function connect(
   } catch {
     throw new AppError(
       'INVALID_PARAMETERS',
-      `Invalid manageable-mcp URL from ${endpoint.source}`,
+      `来自 ${endpoint.source} 的 manageable-mcp URL 无效`,
     );
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new AppError(
       'INVALID_PARAMETERS',
-      `The ${endpoint.source} URL must use http:// or https://`,
+      `${endpoint.source} 的 URL 必须使用 http:// 或 https://`,
     );
   }
   const displayUrl = sanitizeEndpoint(endpoint.url);
@@ -392,15 +392,15 @@ async function connect(
     if (isTimeoutError(error)) {
       throw new AppError(
         'TIMEOUT',
-        `Timed out after ${timeoutMs / 1_000}s connecting to ${displayUrl}`,
+        `连接 ${displayUrl} 超时（${timeoutMs / 1_000} 秒）`,
       );
     }
     const status = connectionHttpStatus(error);
     if (status !== undefined || isJsonRpcAuthError(error)) {
       throw new AppError(
         'AUTH_REQUIRED',
-        `The manageable-mcp daemon at ${displayUrl} rejected the bearer token ` +
-          `(HTTP ${status ?? '401'}). Check --auth-token or MANAGEABLE_MCP_AUTH_TOKEN.`,
+        `${displayUrl} 上的 manageable-mcp 守护进程拒绝了 bearer token` +
+          `（HTTP ${status ?? '401'}）。请检查 --auth-token 或 MANAGEABLE_MCP_AUTH_TOKEN。`,
       );
     }
     if (isUnreachableError(error)) {
@@ -409,7 +409,7 @@ async function connect(
     }
     throw new AppError(
       'SERVER_UNAVAILABLE',
-      `The manageable-mcp daemon at ${displayUrl} responded, but MCP initialization failed: ` +
+      `${displayUrl} 上的 manageable-mcp 守护进程有响应，但 MCP 初始化失败：` +
         sanitizeErrorMessage(message),
     );
   }
@@ -435,11 +435,11 @@ async function callTool(
   } catch (error) {
     if (error instanceof AppError) throw error;
     if (isTimeoutError(error)) {
-      throw new AppError('TIMEOUT', `Timed out after ${timeoutMs / 1_000}s waiting for ${name}`);
+      throw new AppError('TIMEOUT', `等待 ${name} 超时（${timeoutMs / 1_000} 秒）`);
     }
     throw new AppError(
       'SERVER_UNAVAILABLE',
-      `Failed to call ${name}: ${sanitizeErrorMessage(errorMessage(error))}`,
+      `调用 ${name} 失败：${sanitizeErrorMessage(errorMessage(error))}`,
     );
   }
 }
@@ -528,7 +528,7 @@ function writeAuthState(
       }),
     );
   } else if (authenticated) {
-    write(`Server '${command.server}' is authenticated.`);
+    write(`服务器 '${command.server}' 已完成认证。`);
   } else if (authUrl !== undefined) {
     write(authUrl);
   }
@@ -641,7 +641,7 @@ export async function runOneShotCommand(
       case 'auth':
         return await runAuth(command, client, write, writeError);
     }
-    throw new AppError('INTERNAL_ERROR', `Unsupported one-shot command '${command.kind}'`);
+    throw new AppError('INTERNAL_ERROR', `不支持的一次性命令 '${command.kind}'`);
   } finally {
     try {
       await client.close();

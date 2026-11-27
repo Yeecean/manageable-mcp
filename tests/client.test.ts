@@ -83,8 +83,8 @@ function collector(): {
   };
 }
 
-describe('CLI endpoint file', () => {
-  it('writes and reads atomically without leaving temporary files', () => {
+describe('CLI 端点文件', () => {
+  it('原子写入和读取且不留下临时文件', () => {
     const endpoint = endpointFixture({ authToken: 'endpoint-token' });
     writeCliEndpoint(endpoint);
 
@@ -94,7 +94,7 @@ describe('CLI endpoint file', () => {
     expect(fs.readdirSync(stateDir)).toEqual(['cli-endpoint.json']);
   });
 
-  it('replaces an existing endpoint file', () => {
+  it('替换现有端点文件', () => {
     writeCliEndpoint(endpointFixture({ url: 'http://127.0.0.1:4100/mcp' }));
     writeCliEndpoint(endpointFixture({ url: 'http://127.0.0.1:4200/mcp' }));
 
@@ -102,26 +102,26 @@ describe('CLI endpoint file', () => {
     expect(fs.readdirSync(stateDir)).toEqual(['cli-endpoint.json']);
   });
 
-  it('rejects malformed and non-loopback endpoint files', () => {
+  it('拒绝格式错误和非回环端点文件', () => {
     fs.writeFileSync(getDefaultCliEndpointPath(), '{');
     expect(() => readCliEndpoint()).toThrow(AppError);
 
     writeCliEndpoint(endpointFixture({ url: 'http://192.168.1.5:8080/mcp' }));
-    expect(() => readCliEndpoint()).toThrow(/non-loopback/);
+    expect(() => readCliEndpoint()).toThrow(/非回环/);
   });
 
-  it('rejects an endpoint whose daemon pid is not running', () => {
+  it('拒绝守护进程 PID 未运行的端点', () => {
     writeCliEndpoint(endpointFixture({ pid: 2_147_483_647 }));
-    expect(() => readCliEndpoint()).toThrow(/stale/);
+    expect(() => readCliEndpoint()).toThrow(/已失效/);
   });
 
-  it('validates endpoints before writing', () => {
+  it('写入前校验端点', () => {
     expect(() => writeCliEndpoint(endpointFixture({ url: '' }))).toThrow(AppError);
     expect(() => writeCliEndpoint(endpointFixture({ pid: 0 }))).toThrow(AppError);
     expect(() => writeCliEndpoint(endpointFixture({ version: '' }))).toThrow(AppError);
   });
 
-  it('only removes an endpoint when pid and url match', () => {
+  it('仅在 PID 和 URL 匹配时删除端点', () => {
     const endpoint = endpointFixture({ url: 'http://127.0.0.1:5555/mcp' });
     writeCliEndpoint(endpoint);
 
@@ -133,7 +133,7 @@ describe('CLI endpoint file', () => {
     expect(fs.existsSync(getDefaultCliEndpointPath())).toBe(false);
   });
 
-  it('recognizes loopback URLs only', () => {
+  it('仅识别回环 URL', () => {
     expect(isLoopbackUrl('http://127.0.0.1:8080/mcp')).toBe(true);
     expect(isLoopbackUrl('http://127.9.8.7:8080/mcp')).toBe(true);
     expect(isLoopbackUrl('http://localhost:8080/mcp')).toBe(true);
@@ -145,8 +145,8 @@ describe('CLI endpoint file', () => {
   });
 });
 
-describe('one-shot argument parsing', () => {
-  it('parses call with inline JSON parameters', () => {
+describe('一次性命令参数解析', () => {
+  it('解析带内联 JSON 参数的 call', () => {
     const command = parseOneShotCommand(['call', 'echo', 'echo', '{"text":"hi"}']);
     expect(command).toMatchObject({
       kind: 'call',
@@ -159,7 +159,7 @@ describe('one-shot argument parsing', () => {
     });
   });
 
-  it('parses call with stdin and file parameters', () => {
+  it('解析带 stdin 和文件参数的 call', () => {
     expect(parseOneShotCommand(['call', 'echo', 'echo', '-'])).toMatchObject({
       kind: 'call',
       paramsFile: '-',
@@ -172,7 +172,7 @@ describe('one-shot argument parsing', () => {
     });
   });
 
-  it('parses shared flags and describe commands', () => {
+  it('解析通用选项和 describe 命令', () => {
     const command = parseOneShotCommand([
       'list-commands',
       'echo',
@@ -206,38 +206,38 @@ describe('one-shot argument parsing', () => {
     expect(ONE_SHOT_COMMANDS.has('call')).toBe(true);
   });
 
-  it('rejects invalid commands, arity, flags, and JSON', () => {
+  it('拒绝无效命令、参数数量、选项和 JSON', () => {
     const invalid: Array<[string, string[], RegExp]> = [
-      ['unknown command', ['nope'], /Unknown client command/],
-      ['call without a command', ['call', 'echo'], /Usage:/],
-      ['call with too many positionals', ['call', 'echo', 'echo', '{}', 'extra'], /Usage:/],
-      ['list-commands with an extra positional', ['list-commands', 'echo', 'extra'], /Usage:/],
-      ['describe without commands', ['describe', 'echo'], /Usage:/],
-      ['auth with an extra positional', ['auth', 'echo', 'extra'], /Usage:/],
-      ['zero timeout', ['list-commands', 'echo', '--timeout', '0'], /--timeout/],
-      ['negative timeout', ['list-commands', 'echo', '--timeout', '-1'], /--timeout/],
-      ['non-numeric timeout', ['list-commands', 'echo', '--timeout', 'abc'], /--timeout/],
-      ['wait on call', ['call', 'echo', 'echo', '--wait'], /--wait is only valid with auth/],
+      ['未知命令', ['nope'], /未知客户端命令/],
+      ['call 缺少命令', ['call', 'echo'], /用法：/],
+      ['call 位置参数过多', ['call', 'echo', 'echo', '{}', 'extra'], /用法：/],
+      ['list-commands 多出位置参数', ['list-commands', 'echo', 'extra'], /用法：/],
+      ['describe 缺少命令', ['describe', 'echo'], /用法：/],
+      ['auth 多出位置参数', ['auth', 'echo', 'extra'], /用法：/],
+      ['超时为 0', ['list-commands', 'echo', '--timeout', '0'], /--timeout/],
+      ['超时为负数', ['list-commands', 'echo', '--timeout', '-1'], /--timeout/],
+      ['超时不是数字', ['list-commands', 'echo', '--timeout', 'abc'], /--timeout/],
+      ['call 使用 --wait', ['call', 'echo', 'echo', '--wait'], /--wait 仅适用于 auth/],
       [
-        'params-file on list-commands',
+        'list-commands 使用 --params-file',
         ['list-commands', 'echo', '--params-file', 'params.json'],
-        /--params-file is only valid with call/,
+        /--params-file 仅适用于 call/,
       ],
       [
-        'inline and file parameters together',
+        '同时使用内联参数和文件参数',
         ['call', 'echo', 'echo', '{}', '--params-file', 'params.json'],
-        /Use either positional parameters or --params-file/,
+        /位置参数与 --params-file 只能二选一/,
       ],
-      ['invalid JSON', ['call', 'echo', 'echo', '{'], /valid JSON/],
-      ['non-object JSON', ['call', 'echo', 'echo', '[]'], /JSON object/],
-      ['unknown flag', ['list-commands', 'echo', '--nope'], /Unknown flag/],
-      ['missing flag value', ['list-commands', 'echo', '--url'], /requires a value/],
-      ['empty token', ['list-commands', 'echo', '--auth-token', ''], /requires a value/],
-      ['flag as value', ['list-commands', 'echo', '--url', '--json'], /requires a value/],
+      ['无效 JSON', ['call', 'echo', 'echo', '{'], /有效的 JSON/],
+      ['非对象 JSON', ['call', 'echo', 'echo', '[]'], /JSON 对象/],
+      ['未知选项', ['list-commands', 'echo', '--nope'], /不支持选项/],
+      ['选项缺少值', ['list-commands', 'echo', '--url'], /需要提供值/],
+      ['空 token', ['list-commands', 'echo', '--auth-token', ''], /需要提供值/],
+      ['把选项当作值', ['list-commands', 'echo', '--url', '--json'], /需要提供值/],
       [
-        'flag as params-file',
+        '把选项当作参数文件',
         ['call', 'echo', 'echo', '--params-file', '--json'],
-        /requires a value/,
+        /需要提供值/,
       ],
     ];
 
@@ -247,8 +247,8 @@ describe('one-shot argument parsing', () => {
   });
 });
 
-describe('one-shot endpoint precedence', () => {
-  it('falls back to the endpoint file', () => {
+describe('一次性命令端点优先级', () => {
+  it('回退到端点文件', () => {
     writeCliEndpoint(endpointFixture({
       url: 'http://127.0.0.1:4100/mcp',
       authToken: 'file-token',
@@ -257,11 +257,11 @@ describe('one-shot endpoint precedence', () => {
     expect(resolveOneShotEndpoint({})).toMatchObject({
       url: 'http://127.0.0.1:4100/mcp',
       authToken: 'file-token',
-      source: 'CLI endpoint file',
+      source: 'CLI 端点文件',
     });
   });
 
-  it('prefers environment URL and token over the endpoint file', () => {
+  it('环境变量 URL 和 token 优先于端点文件', () => {
     writeCliEndpoint(endpointFixture({
       url: 'http://127.0.0.1:4100/mcp',
       authToken: 'file-token',
@@ -276,7 +276,7 @@ describe('one-shot endpoint precedence', () => {
     });
   });
 
-  it('prefers explicit URL and token over environment and file', () => {
+  it('显式 URL 和 token 优先于环境变量和端点文件', () => {
     writeCliEndpoint(endpointFixture({
       url: 'http://127.0.0.1:4100/mcp',
       authToken: 'file-token',
@@ -296,7 +296,7 @@ describe('one-shot endpoint precedence', () => {
     });
   });
 
-  it('does not use the endpoint file token with an explicit URL', () => {
+  it('显式 URL 不使用端点文件中的 token', () => {
     writeCliEndpoint(endpointFixture({
       url: 'http://127.0.0.1:4100/mcp',
       authToken: 'file-token',
@@ -309,29 +309,29 @@ describe('one-shot endpoint precedence', () => {
     expect(resolveOneShotEndpoint({ url: 'http://127.0.0.1:4300/mcp' }).authToken).toBeUndefined();
   });
 
-  it('reports a friendly error when no daemon endpoint is available', () => {
-    expect(() => resolveOneShotEndpoint({})).toThrow(/No manageable-mcp HTTP daemon is available/);
+  it('无可用守护进程端点时给出友好错误', () => {
+    expect(() => resolveOneShotEndpoint({})).toThrow(/没有可用的 manageable-mcp HTTP 守护进程/);
   });
 });
 
-describe('URL and error sanitization', () => {
-  it('strips userinfo, query, and fragment from endpoints', () => {
+describe('URL 与错误信息脱敏', () => {
+  it('移除端点中的用户信息、查询字符串和片段', () => {
     expect(
       sanitizeEndpoint('http://user:pass@127.0.0.1:8080/mcp?token=abc#frag'),
     ).toBe('http://127.0.0.1:8080/mcp');
     expect(sanitizeEndpoint('http://[::1]:9000/mcp?x=1')).toBe('http://[::1]:9000/mcp');
-    expect(sanitizeEndpoint('not a URL')).toBe('<invalid URL>');
+    expect(sanitizeEndpoint('not a URL')).toBe('<无效 URL>');
   });
 
-  it('redacts URL credentials, query values, bearer tokens, and secrets', () => {
+  it('脱敏 URL 凭据、查询值、bearer token 和秘密', () => {
     const message = sanitizeErrorMessage(
-      'failed http://user:pass@127.0.0.1:8080/mcp?token=abc: ' +
+      '失败 http://user:pass@127.0.0.1:8080/mcp?token=abc: ' +
         'Authorization: Bearer abc.def-123 access_token=xyz',
     );
 
     expect(message).toContain('http://127.0.0.1:8080/mcp');
-    expect(message).toContain('Bearer [REDACTED]');
-    expect(message).toContain('access_token=[REDACTED]');
+    expect(message).toContain('Bearer [已脱敏]');
+    expect(message).toContain('access_token=[已脱敏]');
     expect(message).not.toContain('@');
     expect(message).not.toContain('user');
     expect(message).not.toContain('test-secret');
@@ -340,23 +340,23 @@ describe('URL and error sanitization', () => {
     expect(message).not.toContain('xyz');
   });
 
-  it('rejects invalid attach URLs before connecting', async () => {
+  it('连接前拒绝无效的 attach URL', async () => {
     await expect(
       runStdioAttached({ url: 'not a URL', logger: silentLogger }),
-    ).rejects.toThrow(/Invalid --attach URL/);
+    ).rejects.toThrow(/无效的 --attach URL/);
     await expect(
       runStdioAttached({ url: 'ftp://127.0.0.1/mcp', logger: silentLogger }),
-    ).rejects.toThrow(/http:\/\/ or https:\/\//);
+    ).rejects.toThrow(/http:\/\/ 或 https:\/\//);
   });
 });
 
-describe('authorization URL extraction', () => {
+describe('授权 URL 提取', () => {
   const base: OneShotToolResult = {
-    content: [{ type: 'text', text: 'AUTH_REQUIRED: authorization required' }],
+    content: [{ type: 'text', text: 'AUTH_REQUIRED：需要授权' }],
     isError: true,
   };
 
-  it('reads nested and flattened proxy error details', () => {
+  it('读取嵌套和扁平形式的代理错误详情', () => {
     expect(
       extractAuthUrl({
         ...base,
@@ -378,7 +378,7 @@ describe('authorization URL extraction', () => {
     ).toBe('https://auth.example/flat');
   });
 
-  it('falls back to the text marker', () => {
+  it('回退到文本标记', () => {
     expect(
       extractAuthUrl({
         content: [
@@ -392,16 +392,16 @@ describe('authorization URL extraction', () => {
     ).toBe('https://auth.example/text');
   });
 
-  it('returns undefined for ordinary errors', () => {
+  it('普通错误返回 undefined', () => {
     expect(extractAuthUrl(base)).toBeUndefined();
   });
 });
 
-describe('one-shot round trips', () => {
+describe('一次性命令往返', () => {
   const authToken = 'client-roundtrip-token';
   const echoConfig: ServerConfig = {
     name: 'echo',
-    description: 'Echo fixture',
+    description: 'Echo 测试服务器',
     enabled: true,
     command: process.execPath,
     args: [path.join(root, 'examples', 'echo-server.mjs')],
@@ -442,7 +442,7 @@ describe('one-shot round trips', () => {
     writeCliEndpoint(endpointFixture({ url: server.url, authToken }));
   }
 
-  it('lists commands through a live daemon using the endpoint file token', async () => {
+  it('使用端点文件 token 通过实时守护进程列出命令', async () => {
     useDaemonEndpoint();
     const io = collector();
 
@@ -460,7 +460,7 @@ describe('one-shot round trips', () => {
     expect(text).toContain('"name": "add"');
   });
 
-  it('describes commands through a live daemon', async () => {
+  it('通过实时守护进程描述命令', async () => {
     useDaemonEndpoint();
     const io = collector();
 
@@ -475,7 +475,7 @@ describe('one-shot round trips', () => {
     expect(io.output.join('\n')).toContain('"add"');
   });
 
-  it('invokes a tool with inline parameters', async () => {
+  it('使用内联参数调用工具', async () => {
     useDaemonEndpoint();
     const io = collector();
 
@@ -490,7 +490,7 @@ describe('one-shot round trips', () => {
     expect(io.output.join('\n')).toBe('client-roundtrip');
   });
 
-  it('invokes a tool with parameters from a file', async () => {
+  it('使用文件参数调用工具', async () => {
     useDaemonEndpoint();
     const paramsPath = path.join(stateDir, 'params.json');
     fs.writeFileSync(paramsPath, JSON.stringify({ text: 'file-roundtrip' }));
@@ -506,7 +506,7 @@ describe('one-shot round trips', () => {
     expect(io.output.join('\n')).toBe('file-roundtrip');
   });
 
-  it('returns exit code 1 and prints the error for a failed tool call', async () => {
+  it('工具调用失败时返回退出码 1 并输出错误', async () => {
     useDaemonEndpoint();
     const io = collector();
 
@@ -521,7 +521,7 @@ describe('one-shot round trips', () => {
     expect(io.errors.join('\n')).toContain('simulated downstream failure');
   });
 
-  it('reports an already-authenticated server', async () => {
+  it('报告已完成认证的服务器', async () => {
     useDaemonEndpoint();
     const io = collector();
 
@@ -532,17 +532,17 @@ describe('one-shot round trips', () => {
     );
 
     expect(code).toBe(0);
-    expect(io.output.join('\n')).toContain("Server 'echo' is authenticated.");
+    expect(io.output.join('\n')).toContain("服务器 'echo' 已完成认证。");
   });
 
-  it('reports an authorization URL and waits for it to clear', async () => {
+  it('报告授权 URL 并等待其消失', async () => {
     const authUrl = 'https://auth.example.test/authorize?state=abc';
     let failures = 1;
     const fakeManager = {
       listServers: () => [
         {
           name: 'remote',
-          description: 'Remote fixture',
+          description: 'Remote 测试服务器',
           enabled: true,
           transport: 'http',
           status: failures > 0 ? 'auth' : 'ready',
@@ -557,7 +557,7 @@ describe('one-shot round trips', () => {
           failures -= 1;
           throw new AppError(
             'AUTH_REQUIRED',
-            "Server 'remote' requires OAuth authorization.",
+            "服务器 'remote' 需要 OAuth 授权。",
             { server: 'remote', authUrl },
           );
         }

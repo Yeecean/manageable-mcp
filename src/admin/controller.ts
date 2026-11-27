@@ -55,7 +55,7 @@ export class AdminController {
   constructor(manager: ServerManager, options: AdminControllerOptions = {}) {
     const configPath = options.configPath ?? manager.getConfigPath();
     if (!configPath) {
-      throw new Error('AdminController requires a config path');
+      throw new Error('AdminController 需要配置文件路径');
     }
 
     this.manager = manager;
@@ -86,12 +86,12 @@ export class AdminController {
         if (this.authToken === undefined && !isLoopbackRequest(req)) {
           sendJson(res, 403, {
             success: false,
-            error: { message: 'Admin page is only available from loopback clients without a token' },
+            error: { message: '未配置令牌时，管理页面只允许本机回环客户端访问' },
           });
           return true;
         }
         if (pathname !== '/admin' && pathname !== '/admin/') {
-          throw new AdminError(404, 'Not found');
+          throw new AdminError(404, '未找到');
         }
         requireMethod(req, res, ['GET']);
         sendHtml(res, 200, renderAdminHtml());
@@ -111,7 +111,7 @@ export class AdminController {
     if (this.authToken !== undefined) {
       if (!hasValidBearer(req, this.authToken)) {
         res.setHeader('WWW-Authenticate', 'Bearer');
-        sendJson(res, 401, { success: false, error: { message: 'Unauthorized' } });
+        sendJson(res, 401, { success: false, error: { message: '未授权' } });
         return false;
       }
       return true;
@@ -120,7 +120,7 @@ export class AdminController {
     if (!isLoopbackRequest(req)) {
       sendJson(res, 403, {
         success: false,
-        error: { message: 'Admin API is only available from loopback clients without a token' },
+        error: { message: '未配置令牌时，管理 API 只允许本机回环客户端访问' },
       });
       return false;
     }
@@ -142,7 +142,7 @@ export class AdminController {
     const rawSegments = rest.split('/');
     if (rawSegments[rawSegments.length - 1] === '') rawSegments.pop();
     if (rawSegments.length === 0 || rawSegments.some((segment) => segment.length === 0)) {
-      throw new AdminError(404, 'Not found');
+      throw new AdminError(404, '未找到');
     }
     const segments = rawSegments.map(decodeSegment);
     const first = segments[0];
@@ -167,7 +167,7 @@ export class AdminController {
 
     if (first === 'servers' && (segments.length === 2 || segments.length === 3)) {
       const name = segments[1];
-      if (!name) throw new AdminError(404, 'Not found');
+      if (!name) throw new AdminError(404, '未找到');
 
       if (segments.length === 2) {
         if (req.method === 'GET') {
@@ -183,7 +183,7 @@ export class AdminController {
           return;
         }
         res.setHeader('Allow', 'GET, PUT, DELETE');
-        throw new AdminError(405, 'Method not allowed');
+        throw new AdminError(405, '请求方法不受支持');
       }
 
       if (segments[2] === 'toggle') {
@@ -193,7 +193,7 @@ export class AdminController {
       }
     }
 
-    throw new AdminError(404, 'Not found');
+    throw new AdminError(404, '未找到');
   }
 
   private async getOverview(res: http.ServerResponse): Promise<void> {
@@ -226,12 +226,12 @@ export class AdminController {
   private async addServer(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const input = requireRecord(
       await readJsonBody(req, this.maxBodyBytes),
-      'Request body must be a server object',
+      '请求体必须是服务器配置对象',
     );
 
     const view = await this.withMutation(async () => {
       const raw = await this.store.add(input);
-      await this.reloadManager('Server was saved, but the running manager failed to reload');
+      await this.reloadManager('服务器已保存，但运行中的管理器重新加载失败');
       return describeServer(raw, this.summaryMap().get(nameOf(raw)));
     });
 
@@ -245,12 +245,12 @@ export class AdminController {
   ): Promise<void> {
     const input = requireRecord(
       await readJsonBody(req, this.maxBodyBytes),
-      'Request body must be a server object',
+      '请求体必须是服务器配置对象',
     );
 
     const view = await this.withMutation(async () => {
       const raw = await this.store.update(name, input);
-      await this.reloadManager('Server was saved, but the running manager failed to reload');
+      await this.reloadManager('服务器已保存，但运行中的管理器重新加载失败');
       return describeServer(raw, this.summaryMap().get(name));
     });
 
@@ -260,7 +260,7 @@ export class AdminController {
   private async deleteServer(res: http.ServerResponse, name: string): Promise<void> {
     await this.withMutation(async () => {
       await this.store.remove(name);
-      await this.reloadManager('Server was deleted, but the running manager failed to reload');
+      await this.reloadManager('服务器已删除，但运行中的管理器重新加载失败');
     });
     sendJson(res, 200, { success: true, data: { removed: name } });
   }
@@ -272,15 +272,15 @@ export class AdminController {
   ): Promise<void> {
     const body = requireRecord(
       await readJsonBody(req, this.maxBodyBytes),
-      'Request body must contain an "enabled" boolean',
+      '请求体必须包含布尔字段 "enabled"',
     );
     if (typeof body.enabled !== 'boolean') {
-      throw new AdminError(400, 'Property "enabled" must be a boolean');
+      throw new AdminError(400, '字段 "enabled" 必须是布尔值');
     }
 
     const view = await this.withMutation(async () => {
       const raw = await this.store.setEnabled(name, body.enabled as boolean);
-      await this.reloadManager('Server was updated, but the running manager failed to reload');
+      await this.reloadManager('服务器已更新，但运行中的管理器重新加载失败');
       return describeServer(raw, this.summaryMap().get(name));
     });
 
@@ -309,10 +309,10 @@ export class AdminController {
     const body = await readJsonBody(req, this.maxBodyBytes);
     let requested: string[] | undefined;
     if (body !== undefined) {
-      const record = requireRecord(body, 'Request body must be an object');
+      const record = requireRecord(body, '请求体必须是对象');
       if (record.names !== undefined) {
         if (!Array.isArray(record.names) || record.names.some((name) => typeof name !== 'string')) {
-          throw new AdminError(400, 'Property "names" must be an array of strings');
+          throw new AdminError(400, '字段 "names" 必须是字符串数组');
         }
         requested = record.names as string[];
       }
@@ -350,7 +350,7 @@ export class AdminController {
     return enqueueMutation(this.configPath, task);
   }
 
-  private async reloadManager(messagePrefix = 'Failed to reload config'): Promise<LoadedConfig> {
+  private async reloadManager(messagePrefix = '配置重新加载失败'): Promise<LoadedConfig> {
     try {
       const loaded = loadConfig(this.configPath);
       const health = this.manager.isHealthForcedOn()
@@ -419,12 +419,12 @@ function decodeSegment(value: string): string {
   try {
     const decoded = decodeURIComponent(value);
     if (decoded.length === 0 || decoded.includes('/')) {
-      throw new AdminError(404, 'Not found');
+      throw new AdminError(404, '未找到');
     }
     return decoded;
   } catch (error) {
     if (error instanceof AdminError) throw error;
-    throw new AdminError(400, 'Invalid URL encoding in server name');
+    throw new AdminError(400, '服务器名称的 URL 编码无效');
   }
 }
 
@@ -436,7 +436,7 @@ function requireMethod(
   const method = req.method ?? 'GET';
   if (!allowed.includes(method)) {
     res.setHeader('Allow', allowed.join(', '));
-    throw new AdminError(405, 'Method not allowed');
+    throw new AdminError(405, '请求方法不受支持');
   }
 }
 
@@ -467,7 +467,7 @@ async function readJsonBody(req: http.IncomingMessage, limit: number): Promise<u
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
     if (total > limit) {
-      throw new AdminError(413, `Request body exceeds ${limit} bytes`);
+      throw new AdminError(413, `请求体超过 ${limit} 字节`);
     }
     chunks.push(buffer);
   }
@@ -478,7 +478,7 @@ async function readJsonBody(req: http.IncomingMessage, limit: number): Promise<u
   try {
     return JSON.parse(text);
   } catch {
-    throw new AdminError(400, 'Request body must be valid JSON');
+    throw new AdminError(400, '请求体必须是有效的 JSON');
   }
 }
 
@@ -487,14 +487,97 @@ function sendAdminError(res: http.ServerResponse, error: unknown): void {
     if (error.status === 401) res.setHeader('WWW-Authenticate', 'Bearer');
     sendJson(res, error.status, {
       success: false,
-      error: { message: error.message },
+      error: { message: localizeAdminMessage(error.message) },
     });
     return;
   }
   sendJson(res, 500, {
     success: false,
-    error: { message: 'Internal server error' },
+    error: { message: '服务器内部错误' },
   });
+}
+
+function localizeAdminMessage(message: string): string {
+  const localized = message
+    .replace(/^Server '(.+)' not found$/, '服务器 “$1” 不存在')
+    .replace(/^Server '(.+)' already exists$/, '服务器 “$1” 已存在')
+    .replace(/^Server entry must be a JSON object$/, '服务器配置必须是 JSON 对象')
+    .replace(
+      /^Server name in the request body must match the URL$/,
+      '请求体中的服务器名称必须与 URL 一致',
+    )
+    .replace(
+      /^Server name is required and must be a non-empty string$/,
+      '服务器名称必填，且必须是非空字符串',
+    )
+    .replace(
+      /^Cannot read config file '(.+)': ([\s\S]+)$/,
+      '无法读取配置文件 “$1”。请检查文件是否存在且可访问。',
+    )
+    .replace(
+      /^Config file '(.+)' is not valid JSON: ([\s\S]+)$/,
+      '配置文件 “$1” 不是有效的 JSON。请检查语法。',
+    )
+    .replace(
+      /^Config file '(.+)' must contain a JSON object$/,
+      '配置文件 “$1” 必须包含 JSON 对象',
+    )
+    .replace(
+      /^Config file '(.+)' must contain a "servers" array$/,
+      '配置文件 “$1” 必须包含 "servers" 数组',
+    )
+    .replace(
+      /^Config file '(.+)' has an invalid "groups" object$/,
+      '配置文件 “$1” 的 "groups" 对象无效',
+    )
+    .replace(
+      /^Config servers\[(\d+)\] must be a JSON object$/,
+      '配置 servers[$1] 必须是 JSON 对象',
+    )
+    .replace(
+      /^Cannot write config file '(.+)': ([\s\S]+)$/,
+      '无法写入配置文件 “$1”。请检查目录权限。',
+    )
+    .replace(/^Config could not be serialized$/, '配置无法序列化')
+    .replace(/^Invalid config: ([\s\S]+)$/, '配置校验失败：$1')
+    .replace(/^Property "([^"]+)" /, '字段 “$1” ');
+
+  return localizeConfigDetail(localized);
+}
+
+function localizeConfigDetail(message: string): string {
+  return message
+    .replace(/^config root /, '配置根节点 ')
+    .replace(/must not be empty after expansion/g, '展开后不能为空')
+    .replace(/must be a non-empty string/g, '必须是非空字符串')
+    .replace(/must be an object of string values/g, '必须是字符串值对象')
+    .replace(/must be a string/g, '必须是字符串')
+    .replace(/must be a boolean/g, '必须是布尔值')
+    .replace(/must be an array of strings/g, '必须是字符串数组')
+    .replace(/must be an array/g, '必须是数组')
+    .replace(/must be a JSON object/g, '必须是 JSON 对象')
+    .replace(/must be an object/g, '必须是对象')
+    .replace(/must be a positive integer/g, '必须是正整数')
+    .replace(/must be a non-negative integer/g, '必须是非负整数')
+    .replace(/must be <=/g, '必须小于等于')
+    .replace(/must match/g, '必须匹配')
+    .replace(/is not a valid URL/g, '不是有效的 URL')
+    .replace(/must use http or https/g, '必须使用 http 或 https')
+    .replace(/must set exactly one of command or url/g, '必须且只能设置 command 或 url 之一')
+    .replace(/duplicate server name/g, '服务器名称重复')
+    .replace(/references unknown server/g, '引用了不存在的服务器')
+    .replace(/contains duplicates/g, '包含重复项')
+    .replace(/must not be empty/g, '不能为空')
+    .replace(/cannot read/g, '无法读取')
+    .replace(/references undefined environment variable/g, '引用了未定义的环境变量')
+    .replace(/has an empty file reference/g, '文件引用为空')
+    .replace(/is reserved for the health endpoint/g, '是健康检查端点的保留路径')
+    .replace(
+      /must not use the reserved \/admin or \/api\/admin prefix/g,
+      '不得使用保留的 /admin 或 /api/admin 前缀',
+    )
+    .replace(/must be a path without query or fragment/g, '必须是不含查询串或片段的路径')
+    .replace(/must be 'allow' or 'deny'/g, "必须是 'allow' 或 'deny'");
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {

@@ -1,9 +1,8 @@
-# Architecture
+# 架构
 
-This rewrite keeps one boundary per concern and contains no old-name
-compatibility branches.
+本次重写让每类关注点保持独立边界，且不包含任何旧名称兼容分支。
 
-## Modules
+## 模块
 
 ```text
 src/
@@ -44,28 +43,26 @@ src/
     sanitize.ts            OAuth-aware redaction
 ```
 
-## Request flow
+## 请求流程
 
-1. `cli.ts` handles one-shot and attach commands before config loading.
-2. A daemon loads `servers.json`, creates one `ServerManager`, and chooses
-   stdio or HTTP.
-3. Startup, `tools/list`, and `list_servers` do not connect downstream.
-4. `list_commands`, `describe_commands`, and `invoke_command` connect lazily.
-   Tool lists are cached; `refresh: true` bypasses the cache.
-5. `invoke_command` checks per-server/global policy before calling the
-   downstream client. A denial returns `POLICY_BLOCKED`.
-6. HTTP requests build a fresh proxy server and optional group scope. Group
-   membership is filtered to enabled servers.
-7. Prompts are aggregated only from opted-in servers and namespaced with an
-   injective codec. The `prompts` capability is advertised only when the scope
-   contains at least one opted-in server.
-8. Health probes run only when enabled and after tool activity. They use
-   downstream `ping` and cache healthy/unhealthy results.
-9. `closeAll()` blocks new connections, waits for in-flight connects, closes
-   every client, then clears caches. Config reload uses the same connection
-   quiescing path before replacing the manager map.
+1. `cli.ts` 在加载配置之前处理一次性命令和 attach 命令。
+2. 守护进程加载 `servers.json`，创建一个 `ServerManager`，并选择 stdio 或 HTTP。
+3. 启动、`tools/list` 和 `list_servers` 都不会连接下游。
+4. `list_commands`、`describe_commands` 和 `invoke_command` 会按需懒加载连接。
+   工具列表会被缓存；`refresh: true` 会绕过缓存。
+5. `invoke_command` 在调用下游客户端之前检查服务器级/全局策略。拒绝时返回
+   `POLICY_BLOCKED`。
+6. HTTP 请求会创建新的代理服务器和可选的分组作用域。分组成员只会保留已启用的
+   服务器。
+7. Prompt 只从选择启用的服务器聚合，并使用可逆编解码器命名。只有当作用域内至少
+   有一台选择启用的服务器时，才会声明 `prompts` 能力。
+8. 健康探测仅在启用且工具活动发生后运行。探测使用下游 `ping`，并缓存健康/不健康
+   结果。
+9. `closeAll()` 会阻止新连接、等待正在进行的连接、关闭所有客户端，然后清空缓存。
+   配置重载在替换 manager map 之前，也会先按同样方式停止接收新连接并等待现有连接
+   结束。
 
-## HTTP routes
+## HTTP 路由
 
 ```text
 GET  /health                  cached health, no auth
@@ -75,44 +72,40 @@ POST /mcp                     unscoped MCP endpoint
 POST /mcp/<group>             group-scoped MCP endpoint
 ```
 
-The HTTP transport is stateless: each request gets a fresh `Server` and
-Streamable HTTP transport, while all requests share one `ServerManager`.
+HTTP transport 是无状态的：每个请求都会获得新的 `Server` 和 Streamable HTTP
+transport，而所有请求共享同一个 `ServerManager`。
 
-## OAuth flow
+## OAuth 流程
 
-Every remote server gets an OAuth provider; the callback listener starts only
-when authorization is actually needed or when an explicit `oauth` block is
-configured. The SDK transport performs discovery, dynamic client registration
-when needed, PKCE authorization, and token refresh on `401`/`403`. A shared
-loopback callback server exchanges the authorization code. Tokens,
-client information, verifiers, and discovery state are persisted under the
-application state directory. Authorization-required failures propagate as
-`AUTH_REQUIRED` with the authorization URL in error metadata.
+每个远程服务器都会获得一个 OAuth provider；回调监听器只在确实需要授权时启动，
+或在显式配置了 `oauth` 块时启动。SDK transport 会执行发现、按需动态客户端注册、
+PKCE 授权，并在 `401`/`403` 时刷新 token。共享的 loopback 回调服务器负责交换
+授权码。Token、客户端信息、verifier 和发现状态会持久化到应用状态目录。需要授权的
+失败会以 `AUTH_REQUIRED` 传播，并在错误元数据中携带授权 URL。
 
-## Result model
+## 结果模型
 
-- Successful downstream results are returned unchanged: `content`, `isError`,
-  `structuredContent`, and `_meta` are preserved.
-- Proxy failures return `isError: true` with
-  `_meta.manageableMcpProxyError = { code, message, ...details }`.
-- There is no legacy metadata alias.
+- 成功的下游结果会原样返回：保留 `content`、`isError`、`structuredContent` 和
+  `_meta`。
+- 代理侧失败返回 `isError: true`，并附带
+  `_meta.manageableMcpProxyError = { code, message, ...details }`。
+- 不存在旧版元数据别名。
 
-## Security model
+## 安全模型
 
-- stdio runs with the current OS user's trust.
-- HTTP binds to loopback by default.
-- HTTP checks `Host` and `Origin` before routing, including `/health`.
-- Bearer tokens are compared in constant time.
-- Request bodies are limited to 4 MiB by default.
-- The admin API uses the same bearer token or loopback-only access; the HTML
-  shell contains no server data.
-- OAuth tokens and callback codes are redacted from logs and error pages.
-- One-shot endpoint files are written with owner-only permissions where the
-  platform enforces them.
-- Config writes use validation, a temporary file, fsync, and atomic rename.
+- stdio 以当前操作系统用户的信任级别运行。
+- HTTP 默认绑定 loopback。
+- HTTP 在路由前检查 `Host` 和 `Origin`，包括 `/health`。
+- Bearer token 使用常量时间比较。
+- 请求体默认限制为 4 MiB。
+- 管理 API 使用相同的 bearer token 或仅允许 loopback 访问；HTML 外壳不包含任何
+  服务器数据。
+- OAuth token 和回调 code 会从日志和错误页面中脱敏。
+- 在平台支持时，一次性端点文件会以仅所有者可访问的权限写入。
+- 配置写入会经过校验、临时文件、fsync 和原子重命名。
 
-## Non-goals
+## 非目标
 
-- npm/PyPI/crates/Docker/Homebrew/Rust packaging
-- any old `lazy-*` compatibility surface
-- a multi-tenant remote server; this is a local trust-boundary tool
+- npm/PyPI/crates/Docker/Homebrew/Rust 打包
+- 任何旧 `lazy-*` 兼容接口
+- 多租户远程服务器；本工具面向本地信任边界

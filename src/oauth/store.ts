@@ -20,7 +20,7 @@ function normalizeServerUrl(serverUrl: string): string {
     url.hash = '';
     return url.toString();
   } catch {
-    throw new AppError('CONFIG_INVALID', 'Invalid OAuth server URL for store key');
+    throw new AppError('CONFIG_INVALID', 'OAuth 存储键的服务器 URL 无效');
   }
 }
 
@@ -38,7 +38,7 @@ export function sanitizeOAuthServerUrl(serverUrl: string): string {
     url.hash = '';
     return url.toString();
   } catch {
-    return '[invalid-url]';
+    return '[无效 URL]';
   }
 }
 
@@ -65,7 +65,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseStore(raw: string): OAuthStoreFile {
   const value: unknown = JSON.parse(raw.replace(/^\uFEFF/, ''));
   if (!isRecord(value) || value.version !== STORE_VERSION || !isRecord(value.entries)) {
-    throw new Error('unsupported OAuth store shape');
+    throw new Error('不支持的 OAuth 存储结构');
   }
 
   const entries: Record<string, OAuthStoreEntry> = {};
@@ -120,7 +120,7 @@ async function writeStore(store: OAuthStoreFile): Promise<void> {
     await fs.promises.rm(temporary, { force: true }).catch(() => undefined);
     throw new AppError(
       'INTERNAL_ERROR',
-      `Failed to write OAuth store ${STORE_FILE}: ${sanitizeErrorMessage(
+      `写入 OAuth 存储 ${STORE_FILE} 失败：${sanitizeErrorMessage(
         error instanceof Error ? error.message : String(error),
       )}`,
     );

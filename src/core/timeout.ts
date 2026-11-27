@@ -15,7 +15,7 @@ export async function withTimeout<T>(
     return await Promise.race([
       promise,
       new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new TimeoutError(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer = setTimeout(() => reject(new TimeoutError(`${label} 在 ${timeoutMs}ms 后超时`)), timeoutMs);
       }),
     ]);
   } finally {

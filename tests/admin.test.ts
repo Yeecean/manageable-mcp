@@ -267,6 +267,11 @@ describe('AdminController', () => {
     const html = await page.text();
     expect(html).toContain('URLSearchParams');
     expect(html).toContain('sessionStorage.setItem(TOKEN_KEY');
+    expect(html).toContain('添加服务器');
+    expect(html).toContain('重新加载配置');
+    expect(html).toContain('服务器组');
+    expect(html).toContain('空闲');
+    expect(html).toContain('需要授权');
     expect(html).not.toMatch(/(?:src|href)\s*=\s*["']https?:\/\//i);
     expect(html).not.toMatch(/<link\b/i);
     expect((await fetch(base + '/admin')).status).toBe(200);
@@ -274,6 +279,10 @@ describe('AdminController', () => {
     const unauthenticated = await fetch(base + '/api/admin');
     expect(unauthenticated.status).toBe(401);
     expect(unauthenticated.headers.get('www-authenticate')).toBe('Bearer');
+    await expect(unauthenticated.json()).resolves.toMatchObject({
+      success: false,
+      error: { message: '未授权' },
+    });
     expect(
       (await fetch(base + '/api/admin', { headers: { Authorization: 'Bearer wrong' } })).status,
     ).toBe(401);
@@ -378,7 +387,7 @@ describe('AdminController', () => {
     expect(response.statusCode).toBe(403);
     expect(response.json()).toMatchObject({
       success: false,
-      error: { message: expect.stringContaining('loopback') },
+      error: { message: expect.stringContaining('回环') },
     });
   });
 
@@ -391,6 +400,10 @@ describe('AdminController', () => {
       body: JSON.stringify(echoRaw()),
     });
     expect(duplicate.status).toBe(409);
+    await expect(duplicate.json()).resolves.toMatchObject({
+      success: false,
+      error: { message: '服务器 “echo” 已存在' },
+    });
 
     const invalid = await fetch(base + '/api/admin/servers', {
       method: 'POST',
@@ -398,9 +411,17 @@ describe('AdminController', () => {
       body: JSON.stringify({ name: 'broken', description: 'No transport' }),
     });
     expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toMatchObject({
+      success: false,
+      error: { message: expect.stringContaining('配置校验失败') },
+    });
 
     const missing = await fetch(base + '/api/admin/servers/nope', { headers: authHeaders() });
     expect(missing.status).toBe(404);
+    await expect(missing.json()).resolves.toMatchObject({
+      success: false,
+      error: { message: '服务器 “nope” 不存在' },
+    });
 
     const mismatch = await fetch(base + '/api/admin/servers/nope', {
       method: 'PUT',
@@ -415,6 +436,10 @@ describe('AdminController', () => {
     });
     expect(wrongMethod.status).toBe(405);
     expect(wrongMethod.headers.get('allow')).toBe('GET');
+    await expect(wrongMethod.json()).resolves.toMatchObject({
+      success: false,
+      error: { message: '请求方法不受支持' },
+    });
 
     expect((await fetch(base + '/api/admin/nope', { headers: authHeaders() })).status).toBe(404);
     expect((await fetch(base + '/not-admin')).status).toBe(418);

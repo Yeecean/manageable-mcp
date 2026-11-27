@@ -143,7 +143,7 @@ export class ServerManager {
       return tools;
     } catch (error) {
       if (!(error instanceof OAuthAuthorizationRequiredError)) await this.fail(entry, error);
-      throw this.connectionError(error, `Failed to list tools for '${name}'`, name);
+      throw this.connectionError(error, `列出服务器 '${name}' 的工具失败`, name);
     }
   }
 
@@ -159,7 +159,7 @@ export class ServerManager {
     try {
       client = await this.ensureConnected(entry);
     } catch (error) {
-      throw this.connectionError(error, `Failed to connect to '${name}'`, name);
+      throw this.connectionError(error, `连接服务器 '${name}' 失败`, name);
     }
 
     try {
@@ -176,7 +176,7 @@ export class ServerManager {
           : connectionFailure
             ? 'SERVER_UNAVAILABLE'
             : 'TOOL_EXECUTION_FAILED',
-        `Tool '${toolName}' on '${name}' failed: ${errorMessage(error)}`,
+        `服务器 '${name}' 上的工具 '${toolName}' 调用失败：${errorMessage(error)}`,
         { server: name, tool: toolName },
       );
     }
@@ -242,14 +242,14 @@ export class ServerManager {
     this.assertOpen();
     const decoded = decodePromptName(namespacedName);
     if (!decoded) {
-      throw new AppError('PROMPT_NOT_FOUND', `Prompt '${namespacedName}' not found`);
+      throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
     }
     if (scope !== undefined && !scope.allowedServers.has(decoded.serverName)) {
-      throw new AppError('PROMPT_NOT_FOUND', `Prompt '${namespacedName}' not found`);
+      throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
     }
     const entry = this.requireEntry(decoded.serverName);
     if (!entry.config.forwardPrompts) {
-      throw new AppError('PROMPT_NOT_FOUND', `Prompt '${namespacedName}' not found`);
+      throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
     }
 
     try {
@@ -257,7 +257,7 @@ export class ServerManager {
       if (!client.promptsSupported) {
         throw new AppError(
           'PROMPT_NOT_FOUND',
-          `Server '${decoded.serverName}' does not support prompts`,
+          `服务器 '${decoded.serverName}' 不支持提示词`,
         );
       }
       return await client.getPrompt(decoded.promptName, args, signal);
@@ -265,7 +265,7 @@ export class ServerManager {
       if (error instanceof AppError) throw error;
       throw this.connectionError(
         error,
-        `Failed to get prompt '${namespacedName}'`,
+        `获取提示词 '${namespacedName}' 失败`,
         decoded.serverName,
       );
     }
@@ -382,7 +382,7 @@ export class ServerManager {
   private connectionError(error: unknown, prefix: string, server: string): AppError {
     if (error instanceof AppError) return error;
     if (error instanceof OAuthAuthorizationRequiredError) {
-      return new AppError('AUTH_REQUIRED', `Server '${server}' requires OAuth authorization.`, {
+      return new AppError('AUTH_REQUIRED', `服务器 '${server}' 需要 OAuth 授权。`, {
         server,
         authUrl: error.authUrl,
       });
@@ -399,19 +399,19 @@ export class ServerManager {
     if (!entry) {
       throw new AppError(
         'SERVER_NOT_FOUND',
-        `Unknown server '${name}'. Call list_servers first.`,
+        `未知服务器 '${name}'。请先调用 list_servers。`,
         { server: name },
       );
     }
     if (!entry.config.enabled) {
-      throw new AppError('SERVER_DISABLED', `Server '${name}' is disabled.`, { server: name });
+      throw new AppError('SERVER_DISABLED', `服务器 '${name}' 已禁用。`, { server: name });
     }
     return entry;
   }
 
   private assertOpen(): void {
     if (this.closing) {
-      throw new AppError('SERVER_UNAVAILABLE', 'Server manager is shutting down');
+      throw new AppError('SERVER_UNAVAILABLE', '服务器管理器正在关闭');
     }
   }
 

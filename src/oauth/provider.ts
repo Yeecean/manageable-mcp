@@ -99,7 +99,7 @@ class OAuthProviderImpl implements ManageableOAuthProvider {
     }
     throw new AppError(
       'INTERNAL_ERROR',
-      `OAuth callback server for '${this.serverName}' is still starting; await provider.ready first`,
+      `服务器 '${this.serverName}' 的 OAuth 回调服务器仍在启动中；请先等待 provider.ready`,
     );
   }
 
@@ -137,7 +137,7 @@ class OAuthProviderImpl implements ManageableOAuthProvider {
 
   async saveClientInformation(clientInformation: OAuthClientInformationMixed): Promise<void> {
     if (typeof clientInformation.client_id !== 'string' || clientInformation.client_id.length === 0) {
-      throw new AppError('AUTH_REQUIRED', `OAuth client information for '${this.serverName}' has no client_id`);
+      throw new AppError('AUTH_REQUIRED', `服务器 '${this.serverName}' 的 OAuth 客户端信息缺少 client_id`);
     }
 
     await this.updateEntry((entry) => {
@@ -193,7 +193,7 @@ class OAuthProviderImpl implements ManageableOAuthProvider {
     if (verifier === undefined || verifier.length === 0) {
       throw new AppError(
         'AUTH_REQUIRED',
-        `OAuth code verifier is missing for '${this.serverName}'; start the authorization flow again`,
+        `服务器 '${this.serverName}' 缺少 OAuth code verifier；请重新发起授权流程`,
       );
     }
     return verifier;
@@ -220,7 +220,7 @@ class OAuthProviderImpl implements ManageableOAuthProvider {
     if (state === null || state.length === 0) {
       throw new AppError(
         'AUTH_REQUIRED',
-        `OAuth authorization URL for '${this.serverName}' has no state parameter`,
+        `服务器 '${this.serverName}' 的 OAuth 授权 URL 缺少 state 参数`,
       );
     }
 
@@ -377,7 +377,7 @@ export function createOAuthProvider(
   if (config.clientSecret !== undefined && config.clientId === undefined) {
     throw new AppError(
       'CONFIG_INVALID',
-      `OAuth clientSecret for '${serverName}' requires oauth.clientId`,
+      `服务器 '${serverName}' 配置 OAuth clientSecret 时必须同时配置 oauth.clientId`,
     );
   }
 

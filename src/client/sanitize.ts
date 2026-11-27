@@ -3,7 +3,7 @@ export function sanitizeEndpoint(endpoint: string): string {
   try {
     url = new URL(endpoint);
   } catch {
-    return '<invalid URL>';
+    return '<无效 URL>';
   }
   return `${url.protocol}//${url.host}${url.pathname}`;
 }
@@ -17,7 +17,7 @@ const SECRET_ASSIGNMENT_PATTERN =
 export function sanitizeErrorMessage(message: string): string {
   return message
     .replace(URL_PATTERN, (candidate) => sanitizeEndpoint(candidate))
-    .replace(QUERY_PATTERN, '$1=[REDACTED]')
-    .replace(AUTHORIZATION_PATTERN, '$1 [REDACTED]')
-    .replace(SECRET_ASSIGNMENT_PATTERN, '$1=[REDACTED]');
+    .replace(QUERY_PATTERN, '$1=[已脱敏]')
+    .replace(AUTHORIZATION_PATTERN, '$1 [已脱敏]')
+    .replace(SECRET_ASSIGNMENT_PATTERN, '$1=[已脱敏]');
 }

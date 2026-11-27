@@ -594,7 +594,7 @@ describe('OAuth provider', () => {
     const callbackResponse = await fetch(callbackLocation as string);
     const callbackHtml = await callbackResponse.text();
     expect(callbackResponse.status, callbackHtml).toBe(200);
-    expect(callbackHtml).toContain('Authorization complete');
+    expect(callbackHtml).toContain('授权完成');
 
     expect(fakeServer.tokenRequests).toHaveLength(1);
     expect(fakeServer.tokenRequests[0]?.body.get('code_verifier')).toBeTruthy();
@@ -739,11 +739,11 @@ describe('OAuth provider', () => {
 
     const missingState = await fetch(provider.redirectUrl + '?code=unused');
     expect(missingState.status).toBe(400);
-    expect(await missingState.text()).toContain('Invalid or expired');
+    expect(await missingState.text()).toContain('授权请求无效或已过期');
 
     const wrongState = await fetch(provider.redirectUrl + '?code=unused&state=wrong');
     expect(wrongState.status).toBe(400);
-    expect(await wrongState.text()).toContain('Invalid or expired');
+    expect(await wrongState.text()).toContain('授权请求无效或已过期');
     expect(fakeServer.tokenRequests).toHaveLength(0);
 
     const denied = await fetch(
@@ -769,7 +769,7 @@ describe('OAuth provider', () => {
     expect(sanitized).not.toContain('abc123');
     expect(sanitized).not.toContain('xyz789');
     expect(sanitized).not.toContain('shh');
-    expect(sanitized).toContain('[redacted]');
+    expect(sanitized).toContain('[已脱敏]');
 
     const spy = createSpyLogger();
     const provider = await startProvider(

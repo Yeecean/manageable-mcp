@@ -38,7 +38,7 @@ const VALUE_FLAGS = new Set([
 const BOOLEAN_FLAGS = new Set(['--help', '--version', '--ui', '--cli', '--health']);
 
 function printHelp(): void {
-  process.stdout.write(`Usage:
+  process.stdout.write(`用法：
   ${PACKAGE_NAME} [serve] [options]
   ${PACKAGE_NAME} --attach <url> [--auth-token <token>]
   ${PACKAGE_NAME} call <server> <command> [json-object|-] [options]
@@ -46,28 +46,28 @@ function printHelp(): void {
   ${PACKAGE_NAME} describe <server> <command...> [options]
   ${PACKAGE_NAME} auth <server> [--wait] [options]
 
-Daemon options:
-  --config <path>       servers.json path
-  --transport <mode>    stdio (default) or http
-  --host <host>         HTTP bind host (default 127.0.0.1)
-  --port <port>         HTTP port (default 8080)
-  --path <path>         HTTP MCP path (default /mcp)
-  --auth-token <token>  Require a bearer token for HTTP requests
-  --group <name>        Restrict a stdio session to one configured group
-  --ui                  Enable /admin and /api/admin (HTTP only)
-  --cli                 Publish a one-shot CLI endpoint (HTTP only)
-  --health              Enable activity-driven health probes
-  --log-level <level>   debug, info, warn, or error (default info)
+守护进程选项：
+  --config <path>       servers.json 路径
+  --transport <mode>    stdio（默认）或 http
+  --host <host>         HTTP 绑定主机（默认 127.0.0.1）
+  --port <port>         HTTP 端口（默认 8080）
+  --path <path>         HTTP MCP 路径（默认 /mcp）
+  --auth-token <token>  要求 HTTP 请求携带 bearer token
+  --group <name>        将 stdio 会话限定到一个已配置分组
+  --ui                  启用 /admin 和 /api/admin（仅 HTTP）
+  --cli                 发布一次性 CLI 端点（仅 HTTP）
+  --health              启用由活动触发的健康探测
+  --log-level <level>   debug、info、warn 或 error（默认 info）
 
-One-shot options:
-  --url <url>           Select an HTTP daemon explicitly
-  --auth-token <token>  Bearer token for the daemon
-  --timeout <seconds>   Request timeout (default 60)
-  --params-file <path>  Read call parameters from a JSON file, or - for stdin
-  --json                Print the full MCP result as JSON
-  --wait                Wait for OAuth authorization to complete
+一次性命令选项：
+  --url <url>           显式选择 HTTP 守护进程
+  --auth-token <token>  守护进程的 bearer token
+  --timeout <seconds>   请求超时（默认 60 秒）
+  --params-file <path>  从 JSON 文件读取 call 参数，或用 - 从 stdin 读取
+  --json                以 JSON 输出完整 MCP 结果
+  --wait                等待 OAuth 授权完成
 
-Local-only build. No publishing, legacy aliases, or compatibility modes.
+本地专用构建。不包含发布、旧别名或兼容模式。
 `);
 }
 
@@ -92,11 +92,11 @@ function parseArgs(argv: string[]): { command: string; flags: Map<string, string
       continue;
     }
     if (!VALUE_FLAGS.has(arg)) {
-      throw new AppError('INVALID_PARAMETERS', `Unknown option: ${arg}`);
+      throw new AppError('INVALID_PARAMETERS', `未知选项：${arg}`);
     }
     const value = args[i + 1];
     if (value === undefined || value.length === 0 || value.startsWith('-')) {
-      throw new AppError('INVALID_PARAMETERS', `${arg} requires a value`);
+      throw new AppError('INVALID_PARAMETERS', `${arg} 需要提供值`);
     }
     flags.set(arg, value);
     i += 1;
@@ -107,14 +107,14 @@ function parseArgs(argv: string[]): { command: string; flags: Map<string, string
 function parseLogLevel(value: string | undefined): LogLevel {
   const level = value ?? 'info';
   if (level === 'debug' || level === 'info' || level === 'warn' || level === 'error') return level;
-  throw new AppError('INVALID_PARAMETERS', `Invalid --log-level '${level}'`);
+  throw new AppError('INVALID_PARAMETERS', `无效的 --log-level '${level}'`);
 }
 
 function parsePort(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback;
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new AppError('INVALID_PARAMETERS', `Invalid port '${value}'`);
+    throw new AppError('INVALID_PARAMETERS', `无效的端口 '${value}'`);
   }
   return port;
 }
@@ -137,13 +137,13 @@ function httpOptions(
   const rawPath = flags.get('--path') ?? envValue('MANAGEABLE_MCP_PATH') ?? config.path;
   const mcpPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
   if (mcpPath.includes('?') || mcpPath.includes('#')) {
-    throw new AppError('INVALID_PARAMETERS', '--path must not contain a query or fragment');
+    throw new AppError('INVALID_PARAMETERS', '--path 不能包含查询字符串或片段');
   }
   if (mcpPath === '/health') {
-    throw new AppError('INVALID_PARAMETERS', "--path '/health' is reserved for the health endpoint");
+    throw new AppError('INVALID_PARAMETERS', "--path '/health' 是健康检查端点的保留路径");
   }
   if (mcpPath === '/admin' || mcpPath.startsWith('/admin/')) {
-    throw new AppError('INVALID_PARAMETERS', "--path '/admin' is reserved for the admin panel");
+    throw new AppError('INVALID_PARAMETERS', "--path '/admin' 是管理面板的保留路径");
   }
   const authToken = flags.get('--auth-token') ?? envValue('MANAGEABLE_MCP_AUTH_TOKEN') ?? config.authToken;
   const admin = flags.has('--ui') || config.admin;
@@ -151,13 +151,13 @@ function httpOptions(
   if (cli && !isLoopbackHost(host)) {
     throw new AppError(
       'INVALID_PARAMETERS',
-      '--cli publishes a loopback-only endpoint; bind loopback or use --url explicitly',
+      '--cli 只发布回环地址端点；请绑定回环地址，或显式使用 --url',
     );
   }
   if (admin && !isLoopbackHost(host) && !authToken) {
     throw new AppError(
       'INVALID_PARAMETERS',
-      '--ui on a non-loopback host requires --auth-token or MANAGEABLE_MCP_AUTH_TOKEN',
+      '在非回环主机上使用 --ui 需要 --auth-token 或 MANAGEABLE_MCP_AUTH_TOKEN',
     );
   }
 
@@ -184,31 +184,31 @@ async function runAttach(flags: Map<string, string>, logger: Logger): Promise<vo
   if (unsupported.length > 0) {
     throw new AppError(
       'INVALID_PARAMETERS',
-      `--attach cannot be combined with ${unsupported.join(', ')}. Select a group through the URL (/mcp/<group>).`,
+      `--attach 不能与 ${unsupported.join(', ')} 同时使用。请通过 URL（/mcp/<group>）选择分组。`,
     );
   }
   const url = flags.get('--attach');
-  if (!url) throw new AppError('INVALID_PARAMETERS', '--attach requires a URL');
+  if (!url) throw new AppError('INVALID_PARAMETERS', '--attach 需要一个 URL');
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    throw new AppError('INVALID_PARAMETERS', 'Invalid --attach URL');
+    throw new AppError('INVALID_PARAMETERS', '无效的 --attach URL');
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new AppError('INVALID_PARAMETERS', '--attach URL must start with http:// or https://');
+    throw new AppError('INVALID_PARAMETERS', '--attach URL 必须以 http:// 或 https:// 开头');
   }
   const authToken = flags.get('--auth-token') ?? envValue('MANAGEABLE_MCP_AUTH_TOKEN');
   if (!isLoopbackUrl(url) && !authToken) {
     throw new AppError(
       'INVALID_PARAMETERS',
-      'Attaching to a non-loopback daemon requires --auth-token or MANAGEABLE_MCP_AUTH_TOKEN',
+      '连接非回环守护进程需要 --auth-token 或 MANAGEABLE_MCP_AUTH_TOKEN',
     );
   }
   if (!isLoopbackUrl(url) && parsed.protocol !== 'https:') {
     throw new AppError(
       'INVALID_PARAMETERS',
-      'Attaching to a non-loopback daemon requires https://',
+      '连接非回环守护进程需要 https://',
     );
   }
   await runStdioAttached({ url, authToken, logger });
@@ -220,7 +220,7 @@ export async function main(argv: string[]): Promise<void> {
       const command = parseOneShotCommand(argv);
       process.exitCode = await runOneShotCommand(command);
     } catch (error) {
-      process.stderr.write(`Error: ${errorMessage(error)}\n`);
+      process.stderr.write(`错误：${errorMessage(error)}\n`);
       process.exitCode = 1;
     }
     return;
@@ -242,7 +242,7 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   if (command !== 'serve') {
-    throw new AppError('INVALID_PARAMETERS', `Unknown command '${command}'. Use --help.`);
+    throw new AppError('INVALID_PARAMETERS', `未知命令 '${command}'。请使用 --help。`);
   }
 
   const loaded = loadConfig(flags.get('--config'));
@@ -257,19 +257,19 @@ export async function main(argv: string[]): Promise<void> {
   });
   const transport = (flags.get('--transport') ?? envValue('MANAGEABLE_MCP_TRANSPORT') ?? 'stdio') as TransportKind;
   if (transport !== 'stdio' && transport !== 'http') {
-    throw new AppError('INVALID_PARAMETERS', `Invalid transport '${transport}'`);
+    throw new AppError('INVALID_PARAMETERS', `无效的传输方式 '${transport}'`);
   }
   if (flags.has('--group') && transport !== 'stdio') {
     throw new AppError(
       'INVALID_PARAMETERS',
-      '--group is only supported with stdio transport; use <path>/<group> over HTTP',
+      '--group 仅支持 stdio 传输；通过 HTTP 时请使用 <path>/<group>',
     );
   }
   if ((flags.has('--ui') || flags.has('--cli')) && transport !== 'http') {
-    throw new AppError('INVALID_PARAMETERS', '--ui and --cli require --transport http');
+    throw new AppError('INVALID_PARAMETERS', '--ui 和 --cli 需要 --transport http');
   }
 
-  logger.info('config loaded', {
+  logger.info('配置已加载', {
     path: loaded.sourcePath,
     servers: loaded.config.servers.length,
     transport,
@@ -278,7 +278,7 @@ export async function main(argv: string[]): Promise<void> {
   let scope: ProxyScope | undefined;
   if (flags.has('--group')) {
     scope = resolveGroupScope(manager, flags.get('--group') as string);
-    logger.info('stdio session scoped to group', {
+    logger.info('stdio 会话已限定到分组', {
       group: scope.group,
       servers: Array.from(scope.allowedServers),
     });
@@ -298,9 +298,9 @@ export async function main(argv: string[]): Promise<void> {
         configPath: next.sourcePath,
       });
       if (scope) refreshGroupScope(manager, scope);
-      logger.info('config reloaded', { path: next.sourcePath });
+      logger.info('配置已重新加载', { path: next.sourcePath });
     } catch (error) {
-      logger.error('config reload failed', { error: errorMessage(error) });
+      logger.error('配置重新加载失败', { error: errorMessage(error) });
     } finally {
       reloading = false;
     }
@@ -324,7 +324,7 @@ export async function main(argv: string[]): Promise<void> {
       version: VERSION,
     });
     publishedEndpoint = { url: running.url, pid: process.pid };
-    logger.info('CLI endpoint published', { path: getDefaultCliEndpointPath() });
+    logger.info('CLI 端点已发布', { path: getDefaultCliEndpointPath() });
   }
 
   await new Promise<void>((resolve) => {
@@ -344,9 +344,9 @@ export async function runCli(argv: string[]): Promise<void> {
     await main(argv);
   } catch (error) {
     if (error instanceof AppError) {
-      process.stderr.write(`Error [${error.code}]: ${error.message}\n`);
+      process.stderr.write(`错误 [${error.code}]：${error.message}\n`);
     } else {
-      process.stderr.write(`Error: ${errorMessage(error)}\n`);
+      process.stderr.write(`错误：${errorMessage(error)}\n`);
     }
     process.exitCode = 1;
   }

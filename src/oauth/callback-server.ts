@@ -98,7 +98,7 @@ export function resolveOAuthCallbackPort(callbackPort?: number): number {
     if (!Number.isInteger(callbackPort) || callbackPort < 0 || callbackPort > 65_535) {
       throw new AppError(
         'CONFIG_INVALID',
-        `OAuth callbackPort must be an integer between 0 and 65535, got ${callbackPort}`,
+        `OAuth callbackPort 必须是 0 到 65535 之间的整数，实际为 ${callbackPort}`,
       );
     }
     return callbackPort;
@@ -110,7 +110,7 @@ export function resolveOAuthCallbackPort(callbackPort?: number): number {
   if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65_535) {
     throw new AppError(
       'CONFIG_INVALID',
-      'MANAGEABLE_MCP_OAUTH_CALLBACK_PORT must be an integer between 0 and 65535',
+      'MANAGEABLE_MCP_OAUTH_CALLBACK_PORT 必须是 0 到 65535 之间的整数',
     );
   }
   return parsed;
@@ -132,9 +132,9 @@ function renderPage(options: {
   tone: 'success' | 'error';
 }): string {
   const accent = options.tone === 'success' ? '#0f766e' : '#b91c1c';
-  const badge = options.tone === 'success' ? 'Authorized' : 'Not authorized';
+  const badge = options.tone === 'success' ? '已授权' : '未授权';
   return `<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -188,7 +188,7 @@ function renderPage(options: {
     <div class="badge">${escapeHtml(badge)}</div>
     <h1>${escapeHtml(options.heading)}</h1>
     <p>${escapeHtml(options.message)}</p>
-    <p class="hint">You can close this window and return to manageable-mcp.</p>
+    <p class="hint">你可以关闭此窗口并返回 manageable-mcp。</p>
   </main>
 </body>
 </html>`;
@@ -255,11 +255,11 @@ async function handleCallback(
   const requestUrl = new URL(request.url ?? '/', `http://127.0.0.1:${localPort}`);
 
   if (requestUrl.pathname !== CALLBACK_PATH) {
-    sendText(response, 404, 'Not found');
+    sendText(response, 404, '未找到');
     return;
   }
   if (request.method !== 'GET') {
-    sendText(response, 405, 'Method not allowed', { Allow: 'GET' });
+    sendText(response, 405, '请求方法不允许', { Allow: 'GET' });
     return;
   }
 
@@ -271,10 +271,10 @@ async function handleCallback(
       response,
       400,
       renderPage({
-        title: 'Authorization failed',
-        heading: 'Invalid or expired authorization request',
+        title: '授权失败',
+        heading: '授权请求无效或已过期',
         message:
-          'This callback does not match a pending OAuth request. Start the connection again to receive a fresh authorization URL.',
+          '此回调与任何待处理的 OAuth 请求都不匹配。请重新发起连接以获取新的授权 URL。',
         tone: 'error',
       }),
     );
@@ -289,9 +289,9 @@ async function handleCallback(
       response,
       400,
       renderPage({
-        title: 'Authorization failed',
-        heading: 'Wrong callback address',
-        message: 'This authorization response was delivered to an unexpected local callback port.',
+        title: '授权失败',
+        heading: '回调地址不正确',
+        message: '此授权响应被发送到了预期之外的本地回调端口。',
         tone: 'error',
       }),
     );
@@ -311,9 +311,9 @@ async function handleCallback(
       response,
       400,
       renderPage({
-        title: 'Authorization failed',
-        heading: 'Authorization was not completed',
-        message: safeDescription || 'The authorization server returned an error.',
+        title: '授权失败',
+        heading: '授权未完成',
+        message: safeDescription || '授权服务器返回了错误。',
         tone: 'error',
       }),
     );
@@ -327,9 +327,9 @@ async function handleCallback(
       response,
       400,
       renderPage({
-        title: 'Authorization failed',
-        heading: 'Missing authorization code',
-        message: 'The authorization server did not return a code. Start the connection again.',
+        title: '授权失败',
+        heading: '缺少授权码',
+        message: '授权服务器没有返回授权码。请重新发起连接。',
         tone: 'error',
       }),
     );
@@ -344,16 +344,16 @@ async function handleCallback(
       ...(flow.fetchFn === undefined ? {} : { fetchFn: flow.fetchFn }),
     });
     if (result !== 'AUTHORIZED') {
-      throw new Error('OAuth code exchange did not complete authorization');
+      throw new Error('OAuth 授权码交换未完成授权');
     }
     logger.info('OAuth callback completed', { server: flow.serverName });
     sendHtml(
       response,
       200,
       renderPage({
-        title: 'Authorization complete',
-        heading: 'Authorization complete',
-        message: `manageable-mcp is now authorized for '${flow.serverName}'. The next connection attempt will use the saved token.`,
+        title: '授权完成',
+        heading: '授权完成',
+        message: `manageable-mcp 已获得 '${flow.serverName}' 的授权。下次连接将使用已保存的令牌。`,
         tone: 'success',
       }),
     );
@@ -370,9 +370,9 @@ async function handleCallback(
       response,
       500,
       renderPage({
-        title: 'Authorization failed',
-        heading: 'Could not finish authorization',
-        message: safeError || 'The authorization code exchange failed. Start the connection again.',
+        title: '授权失败',
+        heading: '无法完成授权',
+        message: safeError || '授权码交换失败。请重新发起连接。',
         tone: 'error',
       }),
     );
@@ -389,7 +389,7 @@ function startCallbackServer(
         logger.error('OAuth callback handler failed', {
           error: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
         });
-        if (!response.headersSent) sendText(response, 500, 'Internal OAuth callback error');
+        if (!response.headersSent) sendText(response, 500, 'OAuth 回调内部错误');
         else response.destroy();
       });
     });
@@ -399,7 +399,7 @@ function startCallbackServer(
       reject(
         new AppError(
           'INTERNAL_ERROR',
-          `Failed to start OAuth callback server on 127.0.0.1:${requestedPort}: ${sanitizeErrorMessage(
+          `无法在 127.0.0.1:${requestedPort} 启动 OAuth 回调服务器：${sanitizeErrorMessage(
             error.message,
           )}`,
         ),
@@ -418,7 +418,7 @@ function startCallbackServer(
       const address = httpServer.address();
       if (address === null || typeof address === 'string') {
         httpServer.close(() => undefined);
-        reject(new AppError('INTERNAL_ERROR', 'OAuth callback server did not expose a TCP address'));
+        reject(new AppError('INTERNAL_ERROR', 'OAuth 回调服务器未暴露 TCP 地址'));
         return;
       }
 

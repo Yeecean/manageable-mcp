@@ -38,7 +38,7 @@ export class OAuthAuthorizationRequiredError extends Error {
   readonly authUrl: string;
 
   constructor(authUrl: string) {
-    super('OAuth authorization is required');
+    super('需要 OAuth 授权');
     this.name = 'OAuthAuthorizationRequiredError';
     this.authUrl = authUrl;
   }

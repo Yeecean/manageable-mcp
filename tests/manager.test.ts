@@ -46,7 +46,7 @@ describe('ServerManager', () => {
       echoConfig({ name: 'disabled', enabled: false }),
     ]);
 
-    await expect(manager.listTools('missing')).rejects.toThrow(/Unknown server/);
-    await expect(manager.listTools('disabled')).rejects.toThrow(/disabled/);
+    await expect(manager.listTools('missing')).rejects.toThrow(/未知服务器/);
+    await expect(manager.listTools('disabled')).rejects.toThrow(/已禁用/);
   });
 });

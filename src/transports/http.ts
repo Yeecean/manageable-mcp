@@ -80,7 +80,7 @@ async function readJsonBody(req: http.IncomingMessage, limit: number): Promise<u
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     total += buffer.length;
-    if (total > limit) throw new HttpError(413, `Request body exceeds ${limit} bytes`);
+    if (total > limit) throw new HttpError(413, `请求体超过 ${limit} 字节上限`);
     chunks.push(buffer);
   }
 
@@ -90,7 +90,7 @@ async function readJsonBody(req: http.IncomingMessage, limit: number): Promise<u
   try {
     return JSON.parse(text);
   } catch {
-    throw new HttpError(400, 'Request body must be valid JSON');
+    throw new HttpError(400, '请求体必须是有效 JSON');
   }
 }
 
@@ -110,21 +110,21 @@ function scopeForPath(
   const base = options.path === '/' ? '/' : options.path;
   if (pathname === base || pathname === `${base}/`) return undefined;
   const prefix = base === '/' ? '/' : `${base}/`;
-  if (!pathname.startsWith(prefix)) throw new HttpError(404, 'Not found');
+  if (!pathname.startsWith(prefix)) throw new HttpError(404, '未找到');
 
   let group = pathname.slice(prefix.length);
   if (group.endsWith('/')) group = group.slice(0, -1);
-  if (group.length === 0 || group.includes('/')) throw new HttpError(404, 'Not found');
+  if (group.length === 0 || group.includes('/')) throw new HttpError(404, '未找到');
   try {
     group = decodeURIComponent(group);
   } catch {
-    throw new HttpError(404, 'Not found');
+    throw new HttpError(404, '未找到');
   }
-  if (!/^[A-Za-z0-9._-]+$/.test(group)) throw new HttpError(404, 'Not found');
+  if (!/^[A-Za-z0-9._-]+$/.test(group)) throw new HttpError(404, '未找到');
   try {
     return buildGroupScope(manager, group);
   } catch {
-    throw new HttpError(404, 'Not found');
+    throw new HttpError(404, '未找到');
   }
 }
 
@@ -170,7 +170,7 @@ export async function startHttpServer(
       const pathname = pathnameOf(req);
 
       if (!isRequestAllowed(req, options)) {
-        throw new HttpError(403, 'Host or Origin is not allowed');
+        throw new HttpError(403, 'Host 或 Origin 不被允许');
       }
       if (pathname === '/health') {
         sendJson(res, 200, healthPayload(manager));
@@ -182,11 +182,11 @@ export async function startHttpServer(
       }
       if (!isAuthorized(req, options.authToken)) {
         res.setHeader('WWW-Authenticate', 'Bearer');
-        throw new HttpError(401, 'Unauthorized');
+        throw new HttpError(401, '未授权');
       }
       if (!['POST', 'GET', 'DELETE'].includes(req.method ?? '')) {
         res.setHeader('Allow', 'POST, GET, DELETE');
-        throw new HttpError(405, 'Method not allowed');
+        throw new HttpError(405, '请求方法不允许');
       }
 
       const body = req.method === 'POST' ? await readJsonBody(req, options.maxBodyBytes) : undefined;
@@ -215,7 +215,7 @@ export async function startHttpServer(
         return;
       }
       logger.error('HTTP request failed', { error: errorMessage(error) });
-      sendJson(res, 500, { error: 'Internal server error' });
+      sendJson(res, 500, { error: '服务器内部错误' });
     }
   });
 

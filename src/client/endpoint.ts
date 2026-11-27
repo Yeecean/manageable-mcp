@@ -36,29 +36,29 @@ export function isProcessAlive(pid: number): boolean {
 
 function normalizeEndpoint(endpoint: CliEndpoint, source: string): CliEndpoint {
   if (typeof endpoint.url !== 'string' || endpoint.url.length === 0) {
-    throw new AppError('INVALID_PARAMETERS', `${source}: CLI endpoint "url" must be a non-empty string`);
+    throw new AppError('INVALID_PARAMETERS', `${source}：CLI 端点 "url" 必须是非空字符串`);
   }
   if (!Number.isInteger(endpoint.pid) || endpoint.pid <= 0) {
-    throw new AppError('INVALID_PARAMETERS', `${source}: CLI endpoint "pid" must be a positive integer`);
+    throw new AppError('INVALID_PARAMETERS', `${source}：CLI 端点 "pid" 必须是正整数`);
   }
   if (typeof endpoint.startedAt !== 'string' || endpoint.startedAt.length === 0) {
-    throw new AppError('INVALID_PARAMETERS', `${source}: CLI endpoint "startedAt" must be a non-empty string`);
+    throw new AppError('INVALID_PARAMETERS', `${source}：CLI 端点 "startedAt" 必须是非空字符串`);
   }
   if (typeof endpoint.version !== 'string' || endpoint.version.length === 0) {
-    throw new AppError('INVALID_PARAMETERS', `${source}: CLI endpoint "version" must be a non-empty string`);
+    throw new AppError('INVALID_PARAMETERS', `${source}：CLI 端点 "version" 必须是非空字符串`);
   }
   if (endpoint.authToken !== undefined && typeof endpoint.authToken !== 'string') {
-    throw new AppError('INVALID_PARAMETERS', `${source}: CLI endpoint "authToken" must be a string when present`);
+    throw new AppError('INVALID_PARAMETERS', `${source}：CLI 端点 "authToken" 存在时必须是字符串`);
   }
 
   let url: URL;
   try {
     url = new URL(endpoint.url);
   } catch {
-    throw new AppError('INVALID_PARAMETERS', `${source}: CLI endpoint "url" is not a valid URL`);
+    throw new AppError('INVALID_PARAMETERS', `${source}：CLI 端点 "url" 不是有效的 URL`);
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new AppError('INVALID_PARAMETERS', `${source}: CLI endpoint "url" must use http:// or https://`);
+    throw new AppError('INVALID_PARAMETERS', `${source}：CLI 端点 "url" 必须使用 http:// 或 https://`);
   }
 
   return {
@@ -77,11 +77,11 @@ function parseEndpoint(raw: string, endpointPath: string): CliEndpoint {
   } catch (error) {
     throw new AppError(
       'SERVER_UNAVAILABLE',
-      `Could not read CLI endpoint ${endpointPath}: ${errorMessage(error)}`,
+      `无法读取 CLI 端点 ${endpointPath}：${errorMessage(error)}`,
     );
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new AppError('SERVER_UNAVAILABLE', `${endpointPath} is not a JSON object`);
+    throw new AppError('SERVER_UNAVAILABLE', `${endpointPath} 不是 JSON 对象`);
   }
   try {
     return normalizeEndpoint(parsed as CliEndpoint, endpointPath);
@@ -98,7 +98,7 @@ export function readCliEndpoint(): CliEndpoint {
   } catch (error) {
     throw new AppError(
       'SERVER_UNAVAILABLE',
-      `Could not read CLI endpoint ${endpointPath}: ${errorMessage(error)}`,
+      `无法读取 CLI 端点 ${endpointPath}：${errorMessage(error)}`,
     );
   }
 
@@ -106,13 +106,13 @@ export function readCliEndpoint(): CliEndpoint {
   if (!isProcessAlive(endpoint.pid)) {
     throw new AppError(
       'SERVER_UNAVAILABLE',
-      `CLI endpoint ${endpointPath} is stale (PID ${endpoint.pid} is not running)`,
+      `CLI 端点 ${endpointPath} 已失效（PID ${endpoint.pid} 未运行）`,
     );
   }
   if (!isLoopbackUrl(endpoint.url)) {
     throw new AppError(
       'SERVER_UNAVAILABLE',
-      `CLI endpoint ${endpointPath} contains a non-loopback URL; pass --url explicitly`,
+      `CLI 端点 ${endpointPath} 包含非回环 URL；请显式传入 --url`,
     );
   }
   return endpoint;
@@ -134,7 +134,7 @@ export function writeCliEndpoint(endpoint: CliEndpoint): void {
   } catch (error) {
     throw new AppError(
       'INTERNAL_ERROR',
-      `Could not write CLI endpoint ${endpointPath}: ${errorMessage(error)}`,
+      `无法写入 CLI 端点 ${endpointPath}：${errorMessage(error)}`,
     );
   } finally {
     try {

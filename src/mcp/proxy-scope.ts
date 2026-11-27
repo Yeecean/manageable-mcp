@@ -11,7 +11,7 @@ const GROUP_NAME = /^[A-Za-z0-9._-]+$/;
 export function buildGroupScope(manager: ServerManager, group: string): ProxyScope {
   const config = manager.getGroups()[group];
   if (!config) {
-    throw new AppError('INVALID_PARAMETERS', `Unknown group '${group}'`);
+    throw new AppError('INVALID_PARAMETERS', `未知分组 '${group}'`);
   }
   const allowedServers = new Set(
     config.servers.filter((name) => manager.getServerConfig(name)?.enabled === true),
@@ -23,7 +23,7 @@ export function resolveGroupScope(manager: ServerManager, group: string): ProxyS
   if (!GROUP_NAME.test(group)) {
     throw new AppError(
       'INVALID_PARAMETERS',
-      `Invalid group name '${group}'. Use letters, digits, dots, underscores, or hyphens.`,
+      `分组名称 '${group}' 无效。只能使用字母、数字、点、下划线或连字符。`,
     );
   }
   const groups = manager.getGroups();
@@ -31,7 +31,7 @@ export function resolveGroupScope(manager: ServerManager, group: string): ProxyS
     const available = Object.keys(groups);
     throw new AppError(
       'INVALID_PARAMETERS',
-      `Unknown group '${group}'. ${available.length > 0 ? `Available: ${available.join(', ')}` : 'No groups are configured.'}`,
+      `未知分组 '${group}'。${available.length > 0 ? `可用分组：${available.join(', ')}` : '当前没有配置分组。'}`,
     );
   }
   return buildGroupScope(manager, group);

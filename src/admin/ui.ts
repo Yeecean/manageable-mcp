@@ -1,10 +1,10 @@
 const ADMIN_HTML = String.raw`<!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>manageable-mcp admin</title>
+<title>manageable-mcp 管理面板</title>
 <script>
 (function () {
   try {
@@ -587,40 +587,40 @@ main {
   <div class="brand">
     <div class="brand-mark" aria-hidden="true">M</div>
     <div class="brand-copy">
-      <span class="eyebrow">Local control plane</span>
+      <span class="eyebrow">本地控制台</span>
       <strong>manageable-mcp</strong>
     </div>
   </div>
   <div class="top-actions">
-    <button id="authBtn" class="button ghost small" type="button" title="Set API token">API token</button>
-    <button id="themeToggle" class="icon-button" type="button" aria-label="Toggle theme" title="Toggle theme">&#9680;</button>
+    <button id="authBtn" class="button ghost small" type="button" title="设置 API 令牌">API 令牌</button>
+    <button id="themeToggle" class="icon-button" type="button" aria-label="切换主题" title="切换主题">&#9680;</button>
   </div>
 </header>
 
 <main>
   <section class="hero">
     <div class="hero-copy">
-      <p class="eyebrow">Admin console</p>
-      <h1>Everything this proxy exposes, in one place.</h1>
-      <p class="lede">Add, edit, enable, or remove MCP servers. Every change is validated and written atomically to the same config the proxy reads.</p>
+      <p class="eyebrow">管理控制台</p>
+      <h1>集中管理这个代理暴露的所有能力。</h1>
+      <p class="lede">添加、编辑、启用或移除 MCP 服务器。每次修改都会先校验，再原子写入代理读取的同一份配置。</p>
     </div>
-    <aside class="path-card" aria-label="Runtime paths">
-      <div class="path-row"><span>Config file</span><code id="configPath">Loading...</code></div>
-      <div class="path-row"><span>MCP endpoint</span><code id="mcpPath">Loading...</code></div>
-      <div class="path-note">Admin is local-first. Secret values stay as environment or file placeholders in the raw config.</div>
+    <aside class="path-card" aria-label="运行信息">
+      <div class="path-row"><span>配置文件</span><code id="configPath">加载中...</code></div>
+      <div class="path-row"><span>MCP 端点</span><code id="mcpPath">加载中...</code></div>
+      <div class="path-note">管理面板优先在本机使用。密钥值在原始配置中仍保留为环境变量或文件占位符。</div>
     </aside>
   </section>
 
   <section class="toolbar">
-    <div id="stats" class="stats" aria-label="Server summary"></div>
+    <div id="stats" class="stats" aria-label="服务器概览"></div>
     <div class="toolbar-actions">
       <label class="search">
-        <span class="sr-only">Filter servers</span>
-        <input id="search" type="search" placeholder="Filter servers" autocomplete="off">
+        <span class="sr-only">筛选服务器</span>
+        <input id="search" type="search" placeholder="筛选服务器" autocomplete="off">
       </label>
-      <button id="reloadBtn" class="button" type="button">Reload config</button>
-      <button id="probeBtn" class="button" type="button">Probe servers</button>
-      <button id="addBtn" class="button primary" type="button">Add server</button>
+      <button id="reloadBtn" class="button" type="button">重新加载配置</button>
+      <button id="probeBtn" class="button" type="button">探测服务器</button>
+      <button id="addBtn" class="button primary" type="button">添加服务器</button>
     </div>
   </section>
 
@@ -628,16 +628,16 @@ main {
 
   <section id="groupsPanel" class="groups-panel" hidden>
     <div class="section-heading">
-      <h2>Groups</h2>
-      <p>Group routes use the same membership stored in the raw config.</p>
+      <h2>服务器组</h2>
+      <p>组路由使用原始配置中保存的成员关系。</p>
     </div>
     <div id="groupList" class="group-list"></div>
   </section>
 
   <section class="server-section">
     <div class="section-heading">
-      <h2>Servers</h2>
-      <p id="serverCount">Loading...</p>
+      <h2>服务器</h2>
+      <p id="serverCount">加载中...</p>
     </div>
     <div id="serverList" class="server-grid" aria-live="polite"></div>
   </section>
@@ -648,34 +648,34 @@ main {
 <dialog id="editorDialog" class="modal">
   <div class="modal-head">
     <div>
-      <p class="eyebrow">Raw JSON</p>
-      <h2 id="editorTitle">Add server</h2>
+      <p class="eyebrow">原始 JSON</p>
+      <h2 id="editorTitle">添加服务器</h2>
     </div>
-    <button id="editorClose" class="icon-button" type="button" aria-label="Close">&times;</button>
+    <button id="editorClose" class="icon-button" type="button" aria-label="关闭">&times;</button>
   </div>
   <p id="editorHint" class="modal-hint"></p>
-  <textarea id="editorText" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Server config JSON"></textarea>
+  <textarea id="editorText" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="服务器配置 JSON"></textarea>
   <p id="editorError" class="form-error" role="alert" hidden></p>
   <div class="modal-actions">
-    <button id="editorCancel" class="button" type="button">Cancel</button>
-    <button id="editorSave" class="button primary" type="button">Save</button>
+    <button id="editorCancel" class="button" type="button">取消</button>
+    <button id="editorSave" class="button primary" type="button">保存</button>
   </div>
 </dialog>
 
 <dialog id="authDialog" class="modal compact">
   <div class="modal-head">
     <div>
-      <p class="eyebrow">Authentication</p>
-      <h2>API token</h2>
+      <p class="eyebrow">身份验证</p>
+      <h2>API 令牌</h2>
     </div>
-    <button id="authClose" class="icon-button" type="button" aria-label="Close">&times;</button>
+    <button id="authClose" class="icon-button" type="button" aria-label="关闭">&times;</button>
   </div>
-  <p class="modal-hint">Paste the bearer token configured for the HTTP transport. It is stored only in this browser tab session and sent as an Authorization header.</p>
-  <input id="authInput" class="text-input" type="password" autocomplete="off" placeholder="Bearer token">
+  <p class="modal-hint">粘贴 HTTP 传输层配置的 Bearer 令牌。它只保存在当前浏览器标签页的 sessionStorage 中，并作为 Authorization 请求头发送。</p>
+  <input id="authInput" class="text-input" type="password" autocomplete="off" placeholder="Bearer 令牌">
   <p id="authError" class="form-error" role="alert" hidden></p>
   <div class="modal-actions">
-    <button id="authClear" class="button ghost" type="button">Clear token</button>
-    <button id="authSave" class="button primary" type="button">Use token</button>
+    <button id="authClear" class="button ghost" type="button">清除令牌</button>
+    <button id="authSave" class="button primary" type="button">使用令牌</button>
   </div>
 </dialog>
 
@@ -687,7 +687,7 @@ main {
   var THEME_KEY = 'mmcp.admin.theme';
   var NEW_SERVER_TEMPLATE = '{\n' +
     '  "name": "my-server",\n' +
-    '  "description": "What this server provides",\n' +
+    '  "description": "这个服务器提供什么能力",\n' +
     '  "command": "npx",\n' +
     '  "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/path/to/folder"],\n' +
     '  "enabled": true\n' +
@@ -722,7 +722,7 @@ main {
   function updateThemeButton() {
     var dark = document.documentElement.dataset.theme === 'dark';
     els.themeToggle.textContent = dark ? '☀' : '☾';
-    els.themeToggle.title = dark ? 'Switch to light theme' : 'Switch to dark theme';
+    els.themeToggle.title = dark ? '切换到浅色主题' : '切换到深色主题';
     els.themeToggle.setAttribute('aria-label', els.themeToggle.title);
   }
 
@@ -779,7 +779,7 @@ main {
         if (!response.ok) {
           var message = body && body.error && body.error.message
             ? body.error.message
-            : 'Request failed (' + response.status + ')';
+            : '请求失败（状态码 ' + response.status + '）';
           var failure = new Error(message);
           failure.status = response.status;
           throw failure;
@@ -816,7 +816,7 @@ main {
       if (button.dataset.busy === '1') return;
       button.dataset.busy = '1';
       button.dataset.label = button.textContent;
-      button.textContent = 'Working...';
+      button.textContent = '处理中...';
       button.disabled = true;
     } else {
       if (button.dataset.busy !== '1') return;
@@ -830,21 +830,21 @@ main {
   }
 
   function formatTime(value) {
-    if (!value) return 'never';
+    if (!value) return '从未';
     var date = new Date(value);
-    if (isNaN(date.getTime())) return 'unknown';
-    return date.toLocaleString();
+    if (isNaN(date.getTime())) return '未知';
+    return date.toLocaleString('zh-CN');
   }
 
   function statusLabel(status) {
     var labels = {
-      idle: 'Idle',
-      connecting: 'Connecting',
-      ready: 'Ready',
-      auth: 'Auth required',
-      error: 'Error',
+      idle: '空闲',
+      connecting: '连接中',
+      ready: '就绪',
+      auth: '需要授权',
+      error: '错误',
     };
-    return labels[status] || String(status || 'unknown');
+    return labels[status] || String(status || '未知');
   }
 
   function healthClass(server) {
@@ -856,12 +856,12 @@ main {
   }
 
   function healthTitle(server) {
-    if (server.enabled === false) return 'Server is disabled';
-    if (!server.health) return 'Health has not been probed yet';
+    if (server.enabled === false) return '服务器已停用';
+    if (!server.health) return '尚未进行健康探测';
     if (server.health.healthy) {
-      return 'Healthy' + (server.health.latencyMs !== undefined ? ' - ' + server.health.latencyMs + ' ms' : '');
+      return '健康' + (server.health.latencyMs !== undefined ? ' · ' + server.health.latencyMs + ' 毫秒' : '');
     }
-    return 'Unhealthy' + (server.health.error ? ': ' + server.health.error : '');
+    return '异常' + (server.health.error ? '：' + server.health.error : '');
   }
 
   function renderStats(servers) {
@@ -875,10 +875,10 @@ main {
         (server.health && server.health.healthy === false);
     }).length;
     var items = [
-      { label: 'servers', value: servers.length, tone: '' },
-      { label: 'enabled', value: enabled, tone: 'ok' },
-      { label: 'healthy', value: healthy, tone: 'ok' },
-      { label: 'issues', value: issues, tone: issues > 0 ? 'bad' : '' },
+      { label: '服务器', value: servers.length, tone: '' },
+      { label: '已启用', value: enabled, tone: 'ok' },
+      { label: '健康', value: healthy, tone: 'ok' },
+      { label: '异常', value: issues, tone: issues > 0 ? 'bad' : '' },
     ];
     items.forEach(function (item) {
       var stat = el('div', 'stat ' + item.tone);
@@ -902,10 +902,10 @@ main {
       var members = Array.isArray(group.servers) ? group.servers : [];
       var chip = el('span', 'group-chip');
       chip.appendChild(el('strong', null, name));
-      chip.appendChild(el('span', 'group-count', members.length + (members.length === 1 ? ' server' : ' servers')));
+      chip.appendChild(el('span', 'group-count', members.length + ' 个服务器'));
       chip.title = group.description
-        ? group.description + ' - ' + members.join(', ')
-        : members.join(', ');
+        ? group.description + ' - ' + members.join('、')
+        : members.join('、');
       els.groupList.appendChild(chip);
     });
   }
@@ -921,11 +921,11 @@ main {
 
   function buildToggle(server) {
     var label = el('label', 'switch');
-    label.title = 'Enable or disable this server';
+    label.title = '启用或停用此服务器';
     var input = document.createElement('input');
     input.type = 'checkbox';
     input.checked = server.enabled !== false;
-    input.setAttribute('aria-label', 'Toggle ' + (server.name || 'server'));
+    input.setAttribute('aria-label', '切换 ' + (server.name || '未命名服务器') + ' 的启用状态');
     input.addEventListener('change', function () {
       toggleServer(server, input);
     });
@@ -946,28 +946,28 @@ main {
     var dot = el('span', 'health-dot ' + healthClass(server));
     dot.title = healthTitle(server);
     title.appendChild(dot);
-    title.appendChild(el('h3', null, server.name || '(unnamed)'));
+    title.appendChild(el('h3', null, server.name || '(未命名)'));
     head.appendChild(title);
 
     var controls = el('div', 'card-controls');
     var badges = el('div', 'badges');
     badges.appendChild(el('span', 'badge transport', String(server.transport || 'stdio').toUpperCase()));
     badges.appendChild(el('span', 'badge status-' + String(server.status || 'idle'), statusLabel(server.status)));
-    if (server.enabled === false) badges.appendChild(el('span', 'badge disabled', 'Disabled'));
+    if (server.enabled === false) badges.appendChild(el('span', 'badge disabled', '已停用'));
     controls.appendChild(badges);
     controls.appendChild(buildToggle(server));
     head.appendChild(controls);
     card.appendChild(head);
 
-    card.appendChild(el('p', 'card-description', server.description || 'No description provided.'));
+    card.appendChild(el('p', 'card-description', server.description || '暂无描述。'));
 
     var meta = el('div', 'card-meta');
     if (server.toolCount !== undefined) {
-      meta.appendChild(el('span', 'meta-item', server.toolCount + (server.toolCount === 1 ? ' tool' : ' tools')));
+      meta.appendChild(el('span', 'meta-item', server.toolCount + ' 个工具'));
     }
-    meta.appendChild(el('span', 'meta-item', 'Checked: ' + formatTime(server.health && server.health.lastChecked)));
+    meta.appendChild(el('span', 'meta-item', '最近检查：' + formatTime(server.health && server.health.lastChecked)));
     if (server.health && server.health.latencyMs !== undefined) {
-      meta.appendChild(el('span', 'meta-item', server.health.latencyMs + ' ms'));
+      meta.appendChild(el('span', 'meta-item', server.health.latencyMs + ' 毫秒'));
     }
     card.appendChild(meta);
 
@@ -975,12 +975,12 @@ main {
     if (problem) card.appendChild(el('p', 'card-error', problem));
 
     var actions = el('div', 'card-actions');
-    var edit = el('button', 'button ghost small', 'Edit JSON');
+    var edit = el('button', 'button ghost small', '编辑 JSON');
     edit.type = 'button';
     edit.addEventListener('click', function () {
       openEditor(server);
     });
-    var remove = el('button', 'button danger ghost small', 'Delete');
+    var remove = el('button', 'button danger ghost small', '删除');
     remove.type = 'button';
     remove.addEventListener('click', function () {
       deleteServer(server);
@@ -998,7 +998,7 @@ main {
     wrap.appendChild(el('h3', null, title));
     wrap.appendChild(el('p', null, detail));
     if (withAddButton) {
-      var button = el('button', 'button primary', 'Add a server');
+      var button = el('button', 'button primary', '添加服务器');
       button.type = 'button';
       button.addEventListener('click', function () {
         openEditor(null);
@@ -1010,22 +1010,22 @@ main {
 
   function render() {
     if (!state.data) return;
-    els.configPath.textContent = state.data.configFile || 'unknown';
-    els.mcpPath.textContent = state.data.mcpPath || 'unknown';
+    els.configPath.textContent = state.data.configFile || '未知';
+    els.mcpPath.textContent = state.data.mcpPath || '未知';
     var servers = Array.isArray(state.data.servers) ? state.data.servers : [];
     var filtered = servers.filter(matchesFilter);
     els.serverCount.textContent = state.filter
-      ? filtered.length + ' of ' + servers.length + ' shown'
-      : servers.length + (servers.length === 1 ? ' configured' : ' configured');
+      ? '显示 ' + filtered.length + ' / ' + servers.length
+      : '共 ' + servers.length + ' 个服务器';
     renderStats(servers);
     renderGroups(state.data.groups || {});
 
     if (servers.length === 0) {
-      renderEmpty('No servers configured', 'Add a local command or a remote URL to get started.', true);
+      renderEmpty('尚未配置服务器', '添加本地命令或远程 URL 即可开始。', true);
       return;
     }
     if (filtered.length === 0) {
-      renderEmpty('No matching servers', 'Try a different name, description, or status.', false);
+      renderEmpty('没有匹配的服务器', '试试其他名称、描述或状态。', false);
       return;
     }
 
@@ -1036,7 +1036,7 @@ main {
   }
 
   function renderLoading() {
-    els.serverCount.textContent = 'Loading...';
+    els.serverCount.textContent = '加载中...';
     els.serverList.textContent = '';
     for (var index = 0; index < 3; index += 1) {
       var card = el('div', 'server-card skeleton');
@@ -1049,15 +1049,15 @@ main {
 
   function renderFailure(error) {
     renderEmpty(
-      'Cannot reach the admin API',
-      error && error.message ? error.message : 'Check that the HTTP transport is running.',
+      '无法连接管理 API',
+      error && error.message ? error.message : '请确认 HTTP 传输层正在运行。',
       false,
     );
   }
 
   function updateAuthButton() {
     els.authBtn.classList.toggle('has-token', Boolean(state.token));
-    els.authBtn.title = state.token ? 'API token is set for this tab' : 'Set API token';
+    els.authBtn.title = state.token ? '当前标签页已设置 API 令牌' : '设置 API 令牌';
   }
 
   function load(quiet) {
@@ -1069,7 +1069,7 @@ main {
     }
 
     return api('/api/admin').then(function (body) {
-      if (!body || !body.data) throw new Error('Admin API returned an unexpected response');
+      if (!body || !body.data) throw new Error('管理 API 返回了意外响应');
       state.data = body.data;
       clearNotice();
       render();
@@ -1079,7 +1079,7 @@ main {
         openAuth();
         return;
       }
-      showNotice(error.message || 'Unable to load the admin API.');
+      showNotice(error.message || '无法加载管理面板。');
       if (!state.data) renderFailure(error);
     }).finally(function () {
       state.loading = false;
@@ -1093,27 +1093,27 @@ main {
       method: 'POST',
       body: JSON.stringify({ enabled: desired }),
     }).then(function () {
-      toast(server.name + (desired ? ' enabled' : ' disabled'), 'ok');
+      toast(server.name + (desired ? ' 已启用' : ' 已停用'), 'ok');
       return load(true);
     }).catch(function (error) {
       input.checked = !desired;
-      toast(error.message || 'Toggle failed', 'bad');
+      toast(error.message || '切换失败', 'bad');
     }).finally(function () {
       input.disabled = false;
     });
   }
 
   function deleteServer(server) {
-    if (!window.confirm('Delete server "' + server.name + '"? It will also be removed from every group.')) {
+    if (!window.confirm('确定删除服务器 “' + server.name + '”？它也会从所有服务器组中移除。')) {
       return;
     }
     api('/api/admin/servers/' + encodeURIComponent(server.name), { method: 'DELETE' })
       .then(function () {
-        toast('Deleted ' + server.name, 'ok');
+        toast('已删除 ' + server.name, 'ok');
         return load(true);
       })
       .catch(function (error) {
-        toast(error.message || 'Delete failed', 'bad');
+        toast(error.message || '删除失败', 'bad');
       });
   }
 
@@ -1135,10 +1135,10 @@ main {
 
   function openEditor(server) {
     state.editing = server ? server.name : null;
-    els.editorTitle.textContent = server ? 'Edit ' + server.name : 'Add server';
+    els.editorTitle.textContent = server ? '编辑 ' + server.name : '添加服务器';
     els.editorHint.textContent = server
-      ? 'PUT replaces this raw entry. Keep the server name unchanged.'
-      : 'Paste a raw server object. It needs a name, a description, and exactly one of command or url.';
+      ? 'PUT 会替换这一条原始配置，请保持服务器名称不变。'
+      : '粘贴原始服务器对象。需要 name、description，以及 command 或 url 二选一。';
     els.editorText.value = server
       ? JSON.stringify(rawForServer(server), null, 2)
       : NEW_SERVER_TEMPLATE;
@@ -1156,11 +1156,11 @@ main {
     try {
       parsed = JSON.parse(els.editorText.value);
     } catch (error) {
-      showEditorError('Invalid JSON: ' + error.message);
+      showEditorError('JSON 格式有误，请检查语法后重试。');
       return;
     }
     if (!isRecord(parsed)) {
-      showEditorError('Server entry must be a JSON object.');
+      showEditorError('服务器配置必须是一个 JSON 对象。');
       return;
     }
 
@@ -1174,11 +1174,11 @@ main {
     api(path, { method: method, body: JSON.stringify(parsed) })
       .then(function () {
         els.editorDialog.close();
-        toast(editing ? 'Updated ' + editing : 'Server added', 'ok');
+        toast(editing ? '已更新 ' + editing : '服务器已添加', 'ok');
         return load(true);
       })
       .catch(function (error) {
-        showEditorError(error.message || 'Save failed');
+        showEditorError(error.message || '保存失败');
       })
       .finally(function () {
         setBusy(els.editorSave, false);
@@ -1190,13 +1190,13 @@ main {
     api('/api/admin/reload', { method: 'POST' })
       .then(function (body) {
         var count = body && body.data && body.data.serverCount !== undefined
-          ? ' (' + body.data.serverCount + ' servers)'
+          ? '（' + body.data.serverCount + ' 个服务器）'
           : '';
-        toast('Config reloaded' + count, 'ok');
+        toast('配置已重新加载' + count, 'ok');
         return load(true);
       })
       .catch(function (error) {
-        toast(error.message || 'Reload failed', 'bad');
+        toast(error.message || '重新加载失败', 'bad');
       })
       .finally(function () {
         setBusy(button, false);
@@ -1213,11 +1213,11 @@ main {
         var healthy = results.filter(function (result) {
           return result.healthy === true;
         }).length;
-        toast('Probed ' + results.length + ' servers: ' + healthy + ' healthy', 'ok');
+        toast('已探测 ' + results.length + ' 个服务器，' + healthy + ' 个健康', 'ok');
         return load(true);
       })
       .catch(function (error) {
-        toast(error.message || 'Probe failed', 'bad');
+        toast(error.message || '探测失败', 'bad');
       })
       .finally(function () {
         setBusy(button, false);
@@ -1238,7 +1238,7 @@ main {
   function saveAuth() {
     var value = els.authInput.value.trim();
     if (!value) {
-      els.authError.textContent = 'Enter a bearer token or clear the saved token.';
+      els.authError.textContent = '请输入 Bearer 令牌，或清除已保存的令牌。';
       els.authError.hidden = false;
       return;
     }
@@ -1258,7 +1258,7 @@ main {
     } catch (error) {}
     els.authDialog.close();
     updateAuthButton();
-    toast('API token cleared', 'ok');
+    toast('API 令牌已清除', 'ok');
     load(true);
   }
 

@@ -78,7 +78,7 @@ describe('config parsing', () => {
         },
         base,
       ),
-    ).toThrow(/duplicate server name/);
+    ).toThrow(/服务器名称 'x' 重复/);
 
     expect(() =>
       parseConfig(
@@ -94,7 +94,7 @@ describe('config parsing', () => {
         },
         base,
       ),
-    ).toThrow(/exactly one of command or url/);
+    ).toThrow(/必须且只能设置 command 或 url/);
   });
 
   it('rejects unknown group members', () => {
@@ -106,7 +106,7 @@ describe('config parsing', () => {
         },
         base,
       ),
-    ).toThrow(/unknown server 'missing'/);
+    ).toThrow(/未知服务器 'missing'/);
   });
 
   it('rejects an empty token after environment expansion', () => {
@@ -119,7 +119,7 @@ describe('config parsing', () => {
         },
         base,
       ),
-    ).toThrow(/must not be empty after expansion/);
+    ).toThrow(/展开后不能为空/);
   });
 
   it('rejects reserved health paths and oversized timeouts', () => {
@@ -131,7 +131,7 @@ describe('config parsing', () => {
         },
         base,
       ),
-    ).toThrow(/reserved for the health endpoint/);
+    ).toThrow(/健康检查保留路径/);
 
     expect(() =>
       parseConfig(
@@ -140,7 +140,7 @@ describe('config parsing', () => {
         },
         base,
       ),
-    ).toThrow(/timeoutMs must be <=/);
+    ).toThrow(/timeoutMs 必须 <=/);
   });
 });
 

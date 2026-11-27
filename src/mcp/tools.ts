@@ -28,20 +28,20 @@ function errorResult(error: unknown): CallToolResult {
 
 function catalog(manager: ServerManager, scope?: ProxyScope): string {
   const servers = manager.listServers(scope).filter((server) => server.enabled);
-  if (servers.length === 0) return 'No enabled servers are configured.';
+  if (servers.length === 0) return '当前没有已启用的服务器。';
   return servers.map((server) => `- ${server.name}: ${server.description}`).join('\n');
 }
 
 function requireString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new AppError('INVALID_PARAMETERS', `${field} must be a non-empty string`);
+    throw new AppError('INVALID_PARAMETERS', `${field} 必须是非空字符串`);
   }
   return value;
 }
 
 function requireStringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== 'string')) {
-    throw new AppError('INVALID_PARAMETERS', `${field} must be a non-empty array of strings`);
+    throw new AppError('INVALID_PARAMETERS', `${field} 必须是非空字符串数组`);
   }
   return value as string[];
 }
@@ -49,7 +49,7 @@ function requireStringArray(value: unknown, field: string): string[] {
 function optionalObject(value: unknown, field: string): Record<string, unknown> {
   if (value === undefined) return {};
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new AppError('INVALID_PARAMETERS', `${field} must be an object`);
+    throw new AppError('INVALID_PARAMETERS', `${field} 必须是对象`);
   }
   return value as Record<string, unknown>;
 }
@@ -61,9 +61,9 @@ export function getToolDefinitions(manager: ServerManager, scope?: ProxyScope): 
     {
       name: 'list_servers',
       description:
-        `List the configured MCP servers and their current state. ` +
-        `The enabled server catalog is embedded here so you can choose without a tool call:\n\n${serverCatalog}\n\n` +
-        `This call does not connect to any downstream server. Use list_commands to discover a server's tools.`,
+        `列出已配置的 MCP 服务器及其当前状态。` +
+        `这里直接内嵌已启用服务器目录，无需额外调用工具即可选择：\n\n${serverCatalog}\n\n` +
+        `此调用不会连接任何下游服务器。需要发现某个服务器的工具时，请使用 list_commands。`,
       inputSchema: {
         type: 'object',
         properties: {},
@@ -73,13 +73,13 @@ export function getToolDefinitions(manager: ServerManager, scope?: ProxyScope): 
     {
       name: 'list_commands',
       description:
-        `List tool names and short descriptions for one configured server. ` +
-        `This connects lazily on first use. Call describe_commands before invoke_command.`,
+        `列出某个已配置服务器的工具名称和简短说明。` +
+        `首次使用时会懒加载连接。调用 invoke_command 前请先使用 describe_commands。`,
       inputSchema: {
         type: 'object',
         properties: {
-          server: { type: 'string', description: 'Exact server name from list_servers.' },
-          refresh: { type: 'boolean', description: 'Bypass the in-memory tool cache.' },
+          server: { type: 'string', description: 'list_servers 返回的精确服务器名称。' },
+          refresh: { type: 'boolean', description: '绕过内存中的工具缓存。' },
         },
         required: ['server'],
         additionalProperties: false,
@@ -88,17 +88,17 @@ export function getToolDefinitions(manager: ServerManager, scope?: ProxyScope): 
     {
       name: 'describe_commands',
       description:
-        `Return the full input schema for specific tools on one server. ` +
-        `Request only the tools you intend to call; schemas are the largest disclosure layer.`,
+        `返回某个服务器上指定工具的完整输入 schema。` +
+        `只请求你准备调用的工具；schema 是暴露信息最多的一层。`,
       inputSchema: {
         type: 'object',
         properties: {
-          server: { type: 'string', description: 'Exact server name from list_servers.' },
+          server: { type: 'string', description: 'list_servers 返回的精确服务器名称。' },
           commands: {
             type: 'array',
             items: { type: 'string' },
             minItems: 1,
-            description: 'Tool names returned by list_commands.',
+            description: 'list_commands 返回的工具名称。',
           },
         },
         required: ['server', 'commands'],
@@ -108,16 +108,16 @@ export function getToolDefinitions(manager: ServerManager, scope?: ProxyScope): 
     {
       name: 'invoke_command',
       description:
-        `Invoke one tool on one server. Keep server, command, and parameters at the top level; ` +
-        `all downstream tool inputs belong inside parameters.`,
+        `在某个服务器上调用一个工具。server、command 和 parameters 保持在顶层；` +
+        `所有下游工具输入都放在 parameters 内。`,
       inputSchema: {
         type: 'object',
         properties: {
-          server: { type: 'string', description: 'Exact server name from list_servers.' },
-          command: { type: 'string', description: 'Tool name returned by list_commands.' },
+          server: { type: 'string', description: 'list_servers 返回的精确服务器名称。' },
+          command: { type: 'string', description: 'list_commands 返回的工具名称。' },
           parameters: {
             type: 'object',
-            description: 'Downstream tool arguments. Defaults to an empty object.',
+            description: '下游工具参数，默认为空对象。',
             additionalProperties: true,
           },
         },
@@ -137,7 +137,7 @@ export async function handleToolCall(
 ): Promise<CallToolResult> {
   const args = rawArgs === undefined ? {} : rawArgs;
   if (typeof args !== 'object' || args === null || Array.isArray(args)) {
-    return errorResult(new AppError('INVALID_PARAMETERS', 'Tool arguments must be an object'));
+    return errorResult(new AppError('INVALID_PARAMETERS', '工具参数必须是对象'));
   }
   const input = args as Record<string, unknown>;
 
@@ -176,7 +176,7 @@ export async function handleToolCall(
         if (missing.length > 0) {
           throw new AppError(
             'TOOL_NOT_FOUND',
-            `Server '${server}' has no tool(s): ${missing.join(', ')}`,
+            `服务器 '${server}' 没有这些工具：${missing.join(', ')}`,
             { server, commands: missing },
           );
         }
@@ -209,7 +209,7 @@ export async function handleToolCall(
         if (decision.action === 'deny') {
           throw new AppError(
             'POLICY_BLOCKED',
-            decision.message ?? `Permission policy denied '${server}/${command}'.`,
+            decision.message ?? `权限策略拒绝了 '${server}/${command}'。`,
             { server, command, policySource: decision.source },
           );
         }
@@ -218,7 +218,7 @@ export async function handleToolCall(
       }
 
       default:
-        throw new AppError('TOOL_NOT_FOUND', `Unknown meta-tool '${name}'`);
+        throw new AppError('TOOL_NOT_FOUND', `未知元工具 '${name}'`);
     }
   } catch (error) {
     return errorResult(error);
@@ -229,7 +229,7 @@ function assertVisible(server: string, scope?: ProxyScope): void {
   if (scope !== undefined && !scope.allowedServers.has(server)) {
     throw new AppError(
       'SERVER_NOT_FOUND',
-      `Unknown server '${server}' in group '${scope.group}'.`,
+      `分组 '${scope.group}' 中不存在服务器 '${server}'。`,
       { server, group: scope.group },
     );
   }

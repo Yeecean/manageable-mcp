@@ -98,7 +98,7 @@ describe('extended config', () => {
         },
         base,
       ),
-    ).toThrow(/must be 'allow' or 'deny'/);
+    ).toThrow(/必须是 'allow' 或 'deny'/);
 
     expect(() =>
       parseConfig(
@@ -108,7 +108,7 @@ describe('extended config', () => {
         },
         base,
       ),
-    ).toThrow(/positive integer/);
+    ).toThrow(/必须是正整数/);
 
     expect(() =>
       parseConfig(
@@ -118,6 +118,6 @@ describe('extended config', () => {
         },
         base,
       ),
-    ).toThrow(/reserved \/admin/);
+    ).toThrow(/保留前缀 \/admin/);
   });
 });

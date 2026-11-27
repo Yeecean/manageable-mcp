@@ -2,7 +2,7 @@
   "servers": [
     {
       "name": "echo",
-      "description": "Local demo server with echo, add, and fail tools.",
+      "description": "本地示例服务器，提供 echo、add 和 fail 工具。",
       "command": "node",
       "args": ["examples/echo-server.mjs"],
       "cwd": "."
@@ -10,7 +10,7 @@
   ],
   "groups": {
     "demo": {
-      "description": "Demo tools only",
+      "description": "仅用于演示工具",
       "servers": ["echo"]
     }
   },

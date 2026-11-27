@@ -70,7 +70,9 @@ describe('admin HTTP routing', () => {
     const base = server.url.replace(/\/mcp$/, '');
     const page = await fetch(`${base}/admin`);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain('manageable-mcp');
+    const html = await page.text();
+    expect(html).toContain('manageable-mcp');
+    expect(html).toContain('管理面板');
 
     const unauthorized = await fetch(`${base}/api/admin`);
     expect(unauthorized.status).toBe(401);

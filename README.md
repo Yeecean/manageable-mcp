@@ -1,25 +1,24 @@
 # manageable-mcp v2
 
-A local-only, Windows-first MCP proxy with lazy tool discovery, scoped groups,
-prompt forwarding, policy rules, health probes, OAuth, a management panel, and
-a one-shot client.
+一个仅在本地运行、优先支持 Windows 的 MCP 代理，提供懒加载式工具发现、分组作用域、
+prompt 转发、策略规则、健康探测、OAuth、管理面板和一次性客户端。
 
-This project is intentionally a clean break from the old tree:
+本项目有意与旧代码树彻底划清界限：
 
-- no `lazy-mcp` aliases, no `lazy_mcp` package, no `LAZY_MCP_*` variables;
-- no `_meta.lazyMcp*` keys, no old config directory lookup;
-- no package publishing, Docker, Homebrew, Rust, or Python packaging;
-- no compatibility layer of any kind.
+- 不提供 `lazy-mcp` 别名、`lazy_mcp` 包或 `LAZY_MCP_*` 变量；
+- 不提供 `_meta.lazyMcp*` 键，也不查找旧配置目录；
+- 不包含包发布、Docker、Homebrew、Rust 或 Python 打包链路；
+- 不提供任何形式的兼容层。
 
-Current version: `0.2.0`.
+当前版本：`0.2.0`。
 
-## Requirements
+## 环境要求
 
 - Windows 10/11
-- Node.js 20 or newer
+- Node.js 20 或更高版本
 - npm
 
-## Local quick start
+## 本地快速开始
 
 ```powershell
 cd "E:\GitHub Clone\manageable-mcp-v2"
@@ -31,26 +30,25 @@ npm run smoke:http
 npm run test:e2e
 ```
 
-`test:e2e` starts a real HTTP daemon, exercises one-shot discovery, a policy
-denial, group routing, the admin API, a health probe, the stdio attach bridge,
-and prompt forwarding, then shuts everything down.
+`test:e2e` 会启动一个真实的 HTTP 守护进程，验证一次性发现、策略拒绝、分组路由、
+管理 API、健康探测、stdio attach 桥接和 prompt 转发，最后关闭所有相关进程。
 
-## Configuration
+## 配置
 
-The only configuration source is `servers.json`. The default path is:
+唯一的配置来源是 `servers.json`。默认路径如下：
 
-- Windows: `%APPDATA%\manageable-mcp\servers.json`
-- other platforms: `$XDG_CONFIG_HOME/manageable-mcp/servers.json` or
+- Windows：`%APPDATA%\manageable-mcp\servers.json`
+- 其他平台：`$XDG_CONFIG_HOME/manageable-mcp/servers.json` 或
   `~/.config/manageable-mcp/servers.json`
 
-`--config` and `MANAGEABLE_MCP_CONFIG` override it.
+`--config` 和 `MANAGEABLE_MCP_CONFIG` 可以覆盖该路径。
 
 ```json
 {
   "servers": [
     {
       "name": "local-demo",
-      "description": "Local stdio MCP server.",
+      "description": "本地 stdio MCP 服务器。",
       "command": "node",
       "args": ["examples/echo-server.mjs"],
       "cwd": ".",
@@ -58,13 +56,13 @@ The only configuration source is `servers.json`. The default path is:
       "permissions": {
         "default": "allow",
         "rules": [
-          { "pattern": "delete_*", "action": "deny", "message": "Read-only session" }
+          { "pattern": "delete_*", "action": "deny", "message": "只读会话" }
         ]
       }
     },
     {
       "name": "remote-demo",
-      "description": "Remote Streamable HTTP MCP server.",
+      "description": "远程 Streamable HTTP MCP 服务器。",
       "url": "https://example.com/mcp",
       "oauth": {
         "callbackPort": 8947,
@@ -74,7 +72,7 @@ The only configuration source is `servers.json`. The default path is:
   ],
   "groups": {
     "read-only": {
-      "description": "Safe tools only",
+      "description": "仅包含安全工具",
       "servers": ["local-demo"]
     }
   },
@@ -100,77 +98,70 @@ The only configuration source is `servers.json`. The default path is:
 }
 ```
 
-Each server must set exactly one of `command` (stdio) or `url` (HTTP).
-`${VAR}` is expanded from the environment; `{file:relative/or/absolute/path}`
-reads a secret from a file. Missing variables and unreadable files fail config
-loading. Tokens and secret values are never written to logs.
+每个服务器必须且只能设置 `command`（stdio）或 `url`（HTTP）中的一个。
+`${VAR}` 会从环境变量展开；`{file:relative/or/absolute/path}` 会从文件读取密钥。
+变量缺失或文件不可读会导致配置加载失败。Token 和密钥值绝不会写入日志。
 
-### Groups
+### 分组
 
-Only enabled members of a group are visible. Disabled members behave exactly
-like unknown servers inside that scope.
+分组中只有已启用的成员可见。被禁用的成员在该作用域内的表现与未知服务器完全一致。
 
 ```powershell
 node dist/index.js serve --config servers.json --group read-only
 ```
 
-Over HTTP, a group is a path alias:
+通过 HTTP 时，分组是一个路径别名：
 
 ```text
 http://127.0.0.1:8080/mcp/read-only
 ```
 
-An unknown group returns `404`. With stdio, an unknown `--group` fails startup.
+未知分组返回 `404`。使用 stdio 时，未知的 `--group` 会导致启动失败。
 
-### Permissions
+### 权限
 
-Rules are evaluated in this order:
+规则按以下顺序求值：
 
-1. per-server rules, last match wins;
-2. global rules, last match wins (`server` is a glob, default `*`);
-3. per-server default;
-4. global default;
-5. implicit `allow`.
+1. 服务器级规则，最后一条匹配的规则生效；
+2. 全局规则，最后一条匹配的规则生效（`server` 是 glob，默认 `*`）；
+3. 服务器级默认值；
+4. 全局默认值；
+5. 隐式 `allow`。
 
-Glob syntax supports `*` (any characters) and `?` (one character). Denied calls
-return `isError: true` with `_meta.manageableMcpProxyError.code =
-"POLICY_BLOCKED"`.
+Glob 语法支持 `*`（任意字符）和 `?`（单个字符）。被拒绝的调用会返回
+`isError: true`，并在 `_meta.manageableMcpProxyError.code` 中返回
+`"POLICY_BLOCKED"`。
 
-### Prompts
+### Prompt 转发
 
-Prompt forwarding is opt-in per server with `forwardPrompts: true`. Prompts are
-namespaced as `<server>::<prompt>`; the codec escapes `:` and `\` so names
-round-trip without collisions. The `prompts` capability is only advertised when
-at least one server in the selected scope opts in.
+Prompt 转发按服务器选择启用，配置项为 `forwardPrompts: true`。Prompt 按
+`<server>::<prompt>` 的格式命名；编解码器会转义 `:` 和 `\`，确保名称能够无冲突地
+往返。只有当所选作用域内至少有一台服务器选择启用时，才会声明 `prompts` 能力。
 
 ### OAuth
 
-Remote servers automatically attempt OAuth 2.0 + PKCE when they return
-`401`/`403`. Add an `oauth` block only to override OAuth defaults such as
-static client credentials, callback port, scope, or extra headers. The proxy
-performs RFC 9728/8414 discovery, optional dynamic client registration
-(RFC 7591), a local callback exchange, token persistence, and refresh.
+远程服务器在返回 `401`/`403` 时，会自动尝试 OAuth 2.0 + PKCE。只有在需要覆盖
+OAuth 默认值（例如静态客户端凭证、回调端口、作用域或额外请求头）时，才需要添加
+`oauth` 配置块。代理会执行 RFC 9728/8414 发现、可选的动态客户端注册
+（RFC 7591）、本地回调交换、token 持久化和刷新。
 
-- Default callback: `http://127.0.0.1:8947/callback`
-- `MANAGEABLE_MCP_OAUTH_CALLBACK_PORT` overrides the callback port.
-- `callbackPort: 0` asks the OS for an ephemeral port (tests only by default).
-- Credentials are stored in `%APPDATA%\manageable-mcp\oauth.json`.
-- `clientSecret` requires `clientId`.
+- 默认回调地址：`http://127.0.0.1:8947/callback`
+- `MANAGEABLE_MCP_OAUTH_CALLBACK_PORT` 可覆盖回调端口。
+- `callbackPort: 0` 表示向操作系统申请临时端口（默认仅供测试使用）。
+- 凭证存储在 `%APPDATA%\manageable-mcp\oauth.json`。
+- `clientSecret` 必须与 `clientId` 一起使用。
 
-When authorization is needed, the tool call returns
-`AUTH_REQUIRED` and `_meta.manageableMcpProxyError.authUrl`. Open that URL in a
-browser; the callback server saves the token. Retry the call, or use
-`manageable-mcp auth <server> --wait`.
+需要授权时，工具调用会返回 `AUTH_REQUIRED` 和
+`_meta.manageableMcpProxyError.authUrl`。在浏览器中打开该 URL，回调服务器会保存
+token。随后重试调用，或使用 `manageable-mcp auth <server> --wait`。
 
-### Health
+### 健康探测
 
-Health probing is disabled by default so startup and `list_servers` never
-connect to downstream servers. Enable it in config or with `--health`.
-After tool activity begins, the monitor probes enabled servers, records cached
-health, and sleeps after `idleTimeoutMs`. `/health` reports the cached state
-without starting a probe.
+健康探测默认关闭，因此启动和 `list_servers` 绝不会连接下游服务器。可在配置中启用，
+或使用 `--health` 启用。工具活动开始后，监控器会探测已启用的服务器，缓存健康状态，
+并在超过 `idleTimeoutMs` 后休眠。`/health` 只报告已缓存状态，不会触发探测。
 
-## Run the HTTP daemon
+## 运行 HTTP 守护进程
 
 ```powershell
 npm run demo:http
@@ -178,32 +169,32 @@ npm run demo:http
 node dist/index.js serve --transport http --port 8080
 ```
 
-- MCP endpoint: `http://127.0.0.1:8080/mcp`
-- Group endpoint: `http://127.0.0.1:8080/mcp/<group>`
-- Health: `http://127.0.0.1:8080/health`
-- Admin panel: `http://127.0.0.1:8080/admin`
+- MCP 端点：`http://127.0.0.1:8080/mcp`
+- 分组端点：`http://127.0.0.1:8080/mcp/<group>`
+- 健康检查：`http://127.0.0.1:8080/health`
+- 管理面板：`http://127.0.0.1:8080/admin`
 
-Use `--ui` to enable the admin panel, `--cli` to publish a one-shot endpoint,
-and `--auth-token` to require a bearer token. The one-shot endpoint is
-loopback-only. `--ui` on a non-loopback bind requires a token.
+使用 `--ui` 启用管理面板，使用 `--cli` 发布一次性端点，使用 `--auth-token`
+要求 bearer token。一次性端点仅绑定 loopback。在非 loopback 地址上绑定并启用
+`--ui` 时必须提供 token。
 
-## The four meta-tools
+## 四个元工具
 
-| Tool | Purpose |
+| 工具 | 用途 |
 |---|---|
-| `list_servers` | List visible servers and cached state; does not connect. |
-| `list_commands` | List tool names and short descriptions for one server. |
-| `describe_commands` | Return full input schemas for selected tools. |
-| `invoke_command` | Call one downstream tool. |
+| `list_servers` | 列出可见服务器及缓存状态；不会建立连接。 |
+| `list_commands` | 列出某一服务器的工具名称和简短说明。 |
+| `describe_commands` | 返回所选工具的完整输入 schema。 |
+| `invoke_command` | 调用一个下游工具。 |
 
-The enabled catalog is embedded in the `list_servers` description. Full
-schemas stay lazy until `describe_commands`.
+已启用的服务器目录会嵌入 `list_servers` 的描述中。完整 schema 仍保持懒加载，
+直到调用 `describe_commands`。
 
-## One-shot CLI
+## 一次性 CLI
 
-The daemon publishes `%APPDATA%\manageable-mcp\cli-endpoint.json` when started
-with `--cli` (or `transport.cli: true`). The file contains a loopback URL and,
-when configured, the bearer token; keep the config directory private.
+使用 `--cli`（或 `transport.cli: true`）启动守护进程时，会发布
+`%APPDATA%\manageable-mcp\cli-endpoint.json`。该文件包含 loopback URL，以及配置后
+的 bearer token；请保持配置目录私有。
 
 ```powershell
 node dist/index.js list-commands echo
@@ -213,48 +204,46 @@ node dist/index.js call echo echo - --params-file params.json
 node dist/index.js auth remote --wait
 ```
 
-Use `--url <url>` to select a daemon explicitly, `--auth-token` for its token,
-`--json` for the full result, and `--timeout <seconds>` for a client timeout.
+使用 `--url <url>` 显式选择守护进程，使用 `--auth-token` 指定其 token，使用
+`--json` 输出完整结果，使用 `--timeout <seconds>` 设置客户端超时。
 
-## Attach stdio to a running daemon
+## 将 stdio 附加到运行中的守护进程
 
 ```powershell
 node dist/index.js --attach http://127.0.0.1:8080/mcp
 ```
 
-Attach mode never reads `servers.json` and never starts downstream servers. It
-forwards tools and prompts to the daemon and uses a group via the URL
-(`/mcp/<group>`). Loopback is trusted; non-loopback targets require an
-`https://` URL and a bearer token. URLs and error text are sanitized before
-logging.
+Attach 模式从不读取 `servers.json`，也从不启动下游服务器。它把工具和 prompt
+转发给守护进程，并通过 URL（`/mcp/<group>`）使用分组。Loopback 地址受信任；
+非 loopback 目标要求 `https://` URL 和 bearer token。记录日志前会对 URL 和错误
+文本进行脱敏。
 
-## Admin panel and API
+## 管理面板与 API
 
-Enable with `--ui` or `"transport": { "admin": true }`.
+通过 `--ui` 或 `"transport": { "admin": true }` 启用。
 
-- `GET /admin` — dependency-free browser panel (no CDN).
-- `GET /api/admin` — overview.
-- `POST /api/admin/servers` — add.
-- `GET/PUT/DELETE /api/admin/servers/:name` — read/update/delete.
-- `POST /api/admin/servers/:name/toggle` — enable/disable.
-- `POST /api/admin/reload` — reload from disk.
-- `POST /api/admin/probe` — run health probes.
+- `GET /admin` — 无依赖的浏览器面板（不使用 CDN）。
+- `GET /api/admin` — 概览。
+- `POST /api/admin/servers` — 添加。
+- `GET/PUT/DELETE /api/admin/servers/:name` — 读取/更新/删除。
+- `POST /api/admin/servers/:name/toggle` — 启用/禁用。
+- `POST /api/admin/reload` — 从磁盘重载。
+- `POST /api/admin/probe` — 运行健康探测。
 
-The API requires the configured bearer token. Without a token it only accepts
-loopback clients. Mutating config is validated with the normal parser and
-written atomically; unknown raw fields are preserved.
+API 要求提供已配置的 bearer token。未配置 token 时，仅接受 loopback 客户端。
+配置变更会使用常规解析器校验并以原子方式写入；未知的原始字段会保留。
 
-## Security model
+## 安全模型
 
-- stdout is the MCP protocol channel; every log goes to stderr.
-- HTTP binds to `127.0.0.1` by default and validates `Host`/`Origin`.
-- Request bodies are limited to 4 MiB by default.
-- Bearer comparison is constant-time.
-- Admin/config/token files are local files; the CLI endpoint uses owner-only
-  permissions where the platform enforces them.
-- OAuth tokens and callback codes are redacted from diagnostics.
+- stdout 是 MCP 协议通道；所有日志都写入 stderr。
+- HTTP 默认绑定 `127.0.0.1`，并校验 `Host`/`Origin`。
+- 请求体默认限制为 4 MiB。
+- Bearer token 使用常量时间比较。
+- 管理/配置/token 文件均为本地文件；在平台支持时，CLI 端点使用仅所有者可访问的
+  权限。
+- OAuth token 和回调 code 会从诊断信息中脱敏。
 
-## Development
+## 开发
 
 ```powershell
 npm run dev -- --help
@@ -265,18 +254,18 @@ npm run smoke:http
 npm run test:e2e
 ```
 
-Source layout and design rules are in [ARCHITECTURE.md](./ARCHITECTURE.md).
-The staged rewrite plan is in [docs/ROADMAP.md](./docs/ROADMAP.md).
-Engineering rules and the required workflow are in [RULE.md](./RULE.md).
+源码布局和设计规则见 [ARCHITECTURE.md](./ARCHITECTURE.md)。分阶段重写计划见
+[docs/ROADMAP.md](./docs/ROADMAP.md)。工程规则和必需工作流见
+[RULE.md](./RULE.md)。
 
-## Breaking changes from the old tree
+## 相对旧代码树的破坏性变更
 
-| Old surface | New behavior |
+| 旧接口 | 新行为 |
 |---|---|
-| `lazy-mcp` command | Removed. Binary is `manageable-mcp`. |
-| `lazy_mcp` Python package | Removed. There is no Python package. |
-| `LAZY_MCP_*` variables | Removed. Only `MANAGEABLE_MCP_*` is read. |
-| `_meta.lazyMcp*` | Removed. Only `_meta.manageableMcp*` is emitted. |
-| `~/.config/lazy-mcp/` | Ignored. Default is `%APPDATA%\manageable-mcp\`. |
-| `LazyMCPServer` export | Removed. Use `createProxyServer`. |
-| npm/PyPI/Docker/Homebrew/Rust release paths | Not present. |
+| `lazy-mcp` 命令 | 已移除。二进制名为 `manageable-mcp`。 |
+| `lazy_mcp` Python 包 | 已移除。不再提供 Python 包。 |
+| `LAZY_MCP_*` 变量 | 已移除。只读取 `MANAGEABLE_MCP_*`。 |
+| `_meta.lazyMcp*` | 已移除。只输出 `_meta.manageableMcp*`。 |
+| `~/.config/lazy-mcp/` | 已忽略。默认目录为 `%APPDATA%\manageable-mcp\`。 |
+| `LazyMCPServer` 导出 | 已移除。请使用 `createProxyServer`。 |
+| npm/PyPI/Docker/Homebrew/Rust 发布链路 | 不存在。 |

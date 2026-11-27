@@ -61,12 +61,12 @@ export async function runStdioAttached(options: AttachOptions): Promise<void> {
   try {
     url = new URL(options.url);
   } catch {
-    throw new AppError('INVALID_PARAMETERS', 'Invalid --attach URL');
+    throw new AppError('INVALID_PARAMETERS', '无效的 --attach URL');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new AppError(
       'INVALID_PARAMETERS',
-      `--attach URL must use http:// or https://, got '${url.protocol}'`,
+      `--attach URL 必须使用 http:// 或 https://，实际为 '${url.protocol}'`,
     );
   }
 
@@ -74,7 +74,7 @@ export async function runStdioAttached(options: AttachOptions): Promise<void> {
   const connectTimeoutMs = options.timeoutMs ?? DEFAULT_ATTACH_TIMEOUT_MS;
   const requestTimeoutMs = options.timeoutMs ?? DEFAULT_ATTACH_REQUEST_TIMEOUT_MS;
   if (!Number.isFinite(connectTimeoutMs) || connectTimeoutMs <= 0) {
-    throw new AppError('INVALID_PARAMETERS', 'Attach timeout must be a positive number of milliseconds');
+    throw new AppError('INVALID_PARAMETERS', 'attach 超时必须是大于 0 的毫秒数');
   }
 
   const headers: Record<string, string> =
@@ -102,9 +102,9 @@ export async function runStdioAttached(options: AttachOptions): Promise<void> {
     }
     throw new AppError(
       'SERVER_UNAVAILABLE',
-      `Failed to attach to ${endpoint}: ${sanitizeErrorMessage(errorMessage(error))}\n` +
-        'Check that the daemon is running, the URL points at /mcp or /mcp/<group>, ' +
-        'and any required bearer token matches.',
+      `无法连接到 ${endpoint}：${sanitizeErrorMessage(errorMessage(error))}\n` +
+        '请确认守护进程正在运行，URL 指向 /mcp 或 /mcp/<group>，' +
+        '且所需的 bearer token 正确。',
     );
   }
 
@@ -164,11 +164,11 @@ export async function runStdioAttached(options: AttachOptions): Promise<void> {
     await client.close().catch(() => undefined);
     throw new AppError(
       'INTERNAL_ERROR',
-      `Failed to start the stdio attach bridge: ${sanitizeErrorMessage(errorMessage(error))}`,
+      `启动 stdio attach 桥接失败：${sanitizeErrorMessage(errorMessage(error))}`,
     );
   }
 
-  options.logger.info('stdio attach connected', {
+  options.logger.info('stdio attach 已连接', {
     url: endpoint,
     tools: remoteCapabilities.tools !== undefined,
     prompts: remoteCapabilities.prompts !== undefined,
@@ -182,7 +182,7 @@ export async function runStdioAttached(options: AttachOptions): Promise<void> {
   });
   triggerShutdown();
 
-  options.logger.info('stdio attach closed', { url: endpoint });
+  options.logger.info('stdio attach 已断开', { url: endpoint });
 
   try {
     await server.close();

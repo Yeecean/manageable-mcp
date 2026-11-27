@@ -71,7 +71,7 @@ export async function connectDownstream(
     await withTimeout(
       client.connect(transport, { timeout: config.timeoutMs }),
       config.timeoutMs,
-      `connect to '${config.name}'`,
+      `连接 '${config.name}'`,
     );
   } catch (error) {
     await client.close().catch(() => undefined);
@@ -80,7 +80,7 @@ export async function connectDownstream(
       throw new OAuthAuthorizationRequiredError(oauthProvider.lastAuthorizationUrl);
     }
     if (error instanceof TimeoutError) throw error;
-    throw new Error(`Failed to connect to '${config.name}': ${errorMessage(error)}`);
+    throw new Error(`连接 '${config.name}' 失败：${errorMessage(error)}`);
   }
 
   return {
@@ -97,13 +97,13 @@ export async function connectDownstream(
         const result = await withTimeout(
           client.listTools(cursor === undefined ? undefined : { cursor }, { timeout: config.timeoutMs }),
           config.timeoutMs,
-          `tools/list on '${config.name}'`,
+          `在 '${config.name}' 上执行 tools/list`,
         );
         tools.push(...result.tools);
 
         if (!result.nextCursor) break;
         if (seenCursors.has(result.nextCursor)) {
-          throw new Error(`tools/list on '${config.name}' repeated cursor '${result.nextCursor}'`);
+          throw new Error(`在 '${config.name}' 上执行 tools/list 时重复返回游标 '${result.nextCursor}'`);
         }
         seenCursors.add(result.nextCursor);
         cursor = result.nextCursor;
@@ -119,7 +119,7 @@ export async function connectDownstream(
           ...(signal === undefined ? {} : { signal }),
         }),
         config.timeoutMs,
-        `tools/call '${name}' on '${config.name}'`,
+        `在 '${config.name}' 上执行 tools/call '${name}'`,
       ) as unknown as CallToolResult;
     },
 
@@ -132,12 +132,12 @@ export async function connectDownstream(
         const result = await withTimeout(
           client.listPrompts(cursor === undefined ? undefined : { cursor }, { timeout: config.timeoutMs }),
           config.timeoutMs,
-          `prompts/list on '${config.name}'`,
+          `在 '${config.name}' 上执行 prompts/list`,
         );
         prompts.push(...result.prompts);
         if (!result.nextCursor) break;
         if (seenCursors.has(result.nextCursor)) {
-          throw new Error(`prompts/list on '${config.name}' repeated cursor '${result.nextCursor}'`);
+          throw new Error(`在 '${config.name}' 上执行 prompts/list 时重复返回游标 '${result.nextCursor}'`);
         }
         seenCursors.add(result.nextCursor);
         cursor = result.nextCursor;
@@ -156,7 +156,7 @@ export async function connectDownstream(
           ...(signal === undefined ? {} : { signal }),
         }),
         config.timeoutMs,
-        `prompts/get '${name}' on '${config.name}'`,
+        `在 '${config.name}' 上执行 prompts/get '${name}'`,
       );
     },
 
@@ -167,7 +167,7 @@ export async function connectDownstream(
           ...(signal === undefined ? {} : { signal }),
         }),
         config.timeoutMs,
-        `ping '${config.name}'`,
+        `向 '${config.name}' 发送 ping`,
       );
     },
 

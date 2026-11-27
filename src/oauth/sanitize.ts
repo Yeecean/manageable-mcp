@@ -14,13 +14,13 @@ export function sanitizeErrorMessage(message: string, secrets: readonly string[]
 
   for (const secret of secrets) {
     if (typeof secret !== 'string' || secret.length < 3) continue;
-    result = result.split(secret).join('[redacted]');
+    result = result.split(secret).join('[已脱敏]');
   }
 
   return result
-    .replace(BEARER_TOKEN, 'Bearer [redacted]')
-    .replace(BASIC_CREDENTIALS, 'Basic [redacted]')
-    .replace(SENSITIVE_ASSIGNMENT, '$1$2[redacted]');
+    .replace(BEARER_TOKEN, 'Bearer [已脱敏]')
+    .replace(BASIC_CREDENTIALS, 'Basic [已脱敏]')
+    .replace(SENSITIVE_ASSIGNMENT, '$1$2[已脱敏]');
 }
 
 /**
@@ -35,6 +35,6 @@ export function sanitizeUrlForLog(value: string | URL): string {
     url.hash = '';
     return url.toString();
   } catch {
-    return '[invalid-url]';
+    return '[无效 URL]';
   }
 }
