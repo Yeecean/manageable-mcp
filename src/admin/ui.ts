@@ -736,10 +736,10 @@ main {
         <input id="search" type="search" placeholder="筛选服务器" autocomplete="off">
       </label>
       <div id="statusFilter" class="segmented" role="group" aria-label="按状态筛选">
-        <button type="button" data-filter="all" class="is-active">全部</button>
-        <button type="button" data-filter="enabled">已启用</button>
-        <button type="button" data-filter="disabled">已停用</button>
-        <button type="button" data-filter="error">异常</button>
+        <button type="button" data-filter="all" class="is-active" aria-pressed="true">全部</button>
+        <button type="button" data-filter="enabled" aria-pressed="false">已启用</button>
+        <button type="button" data-filter="disabled" aria-pressed="false">已停用</button>
+        <button type="button" data-filter="error" aria-pressed="false">异常</button>
       </div>
       <button id="reloadBtn" class="button" type="button">重新加载配置</button>
       <button id="probeBtn" class="button" type="button" title="连接所有已启用服务器并刷新工具数量">检测工具</button>
@@ -768,7 +768,7 @@ main {
 
 <div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
 
-<dialog id="editorDialog" class="modal">
+<dialog id="editorDialog" class="modal" aria-labelledby="editorTitle">
   <div class="modal-head">
     <div>
       <p class="eyebrow">原始 JSON</p>
@@ -778,18 +778,18 @@ main {
   </div>
   <p id="editorHint" class="modal-hint"></p>
   <textarea id="editorText" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="服务器配置 JSON"></textarea>
-  <p id="editorError" class="form-error" role="alert" hidden></p>
+  <div id="editorError" class="form-error" role="alert" hidden></div>
   <div class="modal-actions">
     <button id="editorCancel" class="button" type="button">取消</button>
     <button id="editorSave" class="button primary" type="button">保存</button>
   </div>
 </dialog>
 
-<dialog id="authDialog" class="modal compact">
+<dialog id="authDialog" class="modal compact" aria-labelledby="authTitle">
   <div class="modal-head">
     <div>
       <p class="eyebrow">身份验证</p>
-      <h2>API 令牌</h2>
+      <h2 id="authTitle">API 令牌</h2>
     </div>
     <button id="authClose" class="icon-button" type="button" aria-label="关闭">&times;</button>
   </div>
@@ -802,7 +802,7 @@ main {
   </div>
 </dialog>
 
-<dialog id="oauthDialog" class="modal compact">
+<dialog id="oauthDialog" class="modal compact" aria-labelledby="oauthTitle">
   <div class="modal-head">
     <div>
       <p class="eyebrow">OAuth 授权</p>
@@ -818,7 +818,7 @@ main {
     <span class="eyebrow">授权链接</span>
     <input id="oauthUrl" class="text-input" type="text" readonly spellcheck="false">
   </div>
-  <p id="oauthDiagnostic" class="modal-hint" hidden></p>
+  <div id="oauthDiagnostic" class="modal-hint" hidden></div>
   <div class="modal-actions">
     <button id="oauthCopy" class="button" type="button">复制链接</button>
     <button id="oauthClose2" class="button" type="button">关闭</button>
@@ -826,7 +826,7 @@ main {
   </div>
 </dialog>
 
-<dialog id="toolsDialog" class="modal">
+<dialog id="toolsDialog" class="modal" aria-labelledby="toolsTitle">
   <div class="modal-head">
     <div>
       <p class="eyebrow">工具列表</p>
@@ -847,6 +847,9 @@ main {
 
   var TOKEN_KEY = 'mmcp.admin.token';
   var THEME_KEY = 'mmcp.admin.theme';
+  var LONG_ERROR_CHAR_LIMIT = 160;
+  var LONG_ERROR_LINE_LIMIT = 4;
+  var LONG_ERROR_PREVIEW_LENGTH = 140;
   var NEW_SERVER_TEMPLATE = '{\n' +
     '  "name": "my-server",\n' +
     '  "description": "这个服务器提供什么能力",\n' +
@@ -862,11 +865,17 @@ main {
     query: '',
     editing: null,
     loading: false,
+    loadPromise: null,
+    loadRefreshPending: false,
+    loadRefreshQuiet: true,
     toolsCache: {},
+    toolsRequestSeq: 0,
+    toolsServer: null,
     probing: {},
     probingAll: false,
     autoProbeStarted: false,
     oauthServer: null,
+    expandedErrors: {},
   };
   var els = {};
 
@@ -901,12 +910,17 @@ main {
   }
 
   function bootToken() {
+    var params = null;
     try {
-      var params = new URLSearchParams(window.location.search);
-      var bootstrap = params.get('token');
-      if (bootstrap) {
-        state.token = bootstrap;
+      params = new URLSearchParams(window.location.search);
+    } catch (error) {}
+    var bootstrap = params ? params.get('token') : null;
+    if (bootstrap) {
+      state.token = bootstrap;
+      try {
         sessionStorage.setItem(TOKEN_KEY, bootstrap);
+      } catch (error) {}
+      try {
         params.delete('token');
         var query = params.toString();
         window.history.replaceState(
@@ -914,9 +928,11 @@ main {
           '',
           window.location.pathname + (query ? '?' + query : '') + window.location.hash,
         );
-      } else {
-        state.token = sessionStorage.getItem(TOKEN_KEY) || '';
-      }
+      } catch (error) {}
+      return;
+    }
+    try {
+      state.token = sessionStorage.getItem(TOKEN_KEY) || '';
     } catch (error) {
       state.token = '';
     }
@@ -963,8 +979,18 @@ main {
     });
   }
 
+  function renderLongText(container, message, key, className) {
+    container.textContent = '';
+    if (message === undefined || message === null || message === '') return;
+    if (isLongError(message)) {
+      container.appendChild(buildErrorNotice(message, key, className));
+    } else {
+      container.textContent = String(message);
+    }
+  }
+
   function showNotice(message) {
-    els.notice.textContent = message;
+    renderLongText(els.notice, message, 'notice', 'notice-collapsible');
     els.notice.hidden = false;
   }
 
@@ -1030,19 +1056,26 @@ main {
 
   function isLongError(text) {
     var value = String(text);
-    return value.length > 160 || value.split(/\r?\n/).length > 4;
+    return value.length > LONG_ERROR_CHAR_LIMIT ||
+      value.split(/\r?\n/).length > LONG_ERROR_LINE_LIMIT;
   }
 
   function compactErrorText(text) {
     var value = String(text).replace(/\s+/g, ' ').trim();
-    return value.length > 140 ? value.slice(0, 140) + '…' : value;
+    return value.length > LONG_ERROR_PREVIEW_LENGTH
+      ? value.slice(0, LONG_ERROR_PREVIEW_LENGTH) + '…'
+      : value;
   }
 
-  function buildErrorNotice(text) {
+  function buildErrorNotice(text, key, className) {
     var message = String(text);
-    if (!isLongError(message)) return el('p', 'card-error', message);
+    if (!isLongError(message)) return el('p', className || 'card-error', message);
 
-    var details = el('details', 'card-error card-error-collapsible');
+    var details = el(
+      'details',
+      'card-error card-error-collapsible' + (className ? ' ' + className : ''),
+    );
+    details.open = state.expandedErrors[key] === true;
     var summary = el('summary');
     summary.title = '展开或收起完整错误信息';
     summary.appendChild(el('span', 'error-summary-text', compactErrorText(message)));
@@ -1054,6 +1087,10 @@ main {
 
     details.appendChild(summary);
     details.appendChild(el('pre', 'error-detail', message));
+    details.addEventListener('toggle', function () {
+      if (details.open) state.expandedErrors[key] = true;
+      else delete state.expandedErrors[key];
+    });
     return details;
   }
 
@@ -1158,7 +1195,10 @@ main {
     var head = el('div', 'card-head');
     var title = el('div', 'card-title');
     var dot = el('span', 'health-dot ' + healthClass(server));
-    dot.title = healthTitle(server);
+    var healthLabel = healthTitle(server);
+    dot.title = healthLabel;
+    dot.setAttribute('role', 'img');
+    dot.setAttribute('aria-label', healthLabel);
     title.appendChild(dot);
     title.appendChild(el('h3', null, server.name || '(未命名)'));
     head.appendChild(title);
@@ -1204,7 +1244,7 @@ main {
     }
 
     var problem = server.error || server.configError || (server.health && server.health.error);
-    if (problem) card.appendChild(buildErrorNotice(problem));
+    if (problem) card.appendChild(buildErrorNotice(problem, server.name));
 
     var meta = el('div', 'card-meta');
     var probing = state.probing[server.name] === true;
@@ -1247,17 +1287,17 @@ main {
 
     if (
       server.type === 'remote' &&
-      server.enabled !== false &&
-      (server.authType === 'oauth' || server.authType === 'unknown')
+      server.enabled !== false
     ) {
-      var authText = server.authType === 'unknown'
-        ? '检测授权'
-        : (server.authRequired ? '重新授权' : '授权');
+      var authNeeded = server.status === 'auth' || server.authRequired === true;
+      var authText = authNeeded
+        ? (server.authRequired === true ? '重新授权' : '授权')
+        : ((server.authType === 'unknown' || server.authType === 'api-key') ? '检测授权' : '授权');
       var authButton = el('button', 'button ghost small', authText);
       authButton.type = 'button';
-      authButton.title = server.authType === 'unknown'
-        ? '检测该服务器是否需要 OAuth，并在需要时获取授权链接'
-        : '检查登录状态并获取 OAuth 授权链接';
+      authButton.title = authNeeded
+        ? '重新检查登录状态并获取 OAuth 授权链接'
+        : '检测该服务器是否需要 OAuth，并在需要时获取授权链接';
       authButton.addEventListener('click', function () {
         onAuthorize(server, authButton);
       });
@@ -1272,7 +1312,7 @@ main {
     var remove = el('button', 'button danger ghost small', '删除');
     remove.type = 'button';
     remove.addEventListener('click', function () {
-      deleteServer(server);
+      deleteServer(server, remove);
     });
     actions.appendChild(edit);
     actions.appendChild(remove);
@@ -1352,30 +1392,70 @@ main {
   }
 
   function load(quiet) {
-    if (state.loading) return Promise.resolve();
-    state.loading = true;
-    if (!quiet) {
-      clearNotice();
-      renderLoading();
+    if (state.loadPromise) {
+      state.loadRefreshPending = true;
+      if (!quiet) state.loadRefreshQuiet = false;
+      return state.loadPromise;
     }
 
-    return api('/api/admin').then(function (body) {
-      if (!body || !body.data) throw new Error('管理 API 返回了意外响应');
-      state.data = body.data;
-      clearNotice();
-      render();
-      updateAuthButton();
-      autoProbeUnknown();
-    }).catch(function (error) {
-      if (error.status === 401) {
-        openAuth();
+    var resolveLoad;
+    var rejectLoad;
+    var completion = new Promise(function (resolve, reject) {
+      resolveLoad = resolve;
+      rejectLoad = reject;
+    });
+    state.loadPromise = completion;
+    state.loading = true;
+    state.loadRefreshPending = false;
+    state.loadRefreshQuiet = true;
+
+    function runLoad(runQuiet) {
+      if (!runQuiet) {
+        clearNotice();
+        renderLoading();
+      }
+      return api('/api/admin').then(function (body) {
+        if (!body || !body.data) throw new Error('管理 API 返回了意外响应');
+        state.data = body.data;
+        clearNotice();
+        render();
+        updateAuthButton();
+        autoProbeUnknown();
+      }).catch(function (error) {
+        if (error.status === 401) {
+          openAuth();
+          return;
+        }
+        showNotice(error.message || '无法加载管理面板。');
+        if (!state.data) renderFailure(error);
+      });
+    }
+
+    function finish() {
+      if (state.loadRefreshPending) {
+        var nextQuiet = state.loadRefreshQuiet;
+        state.loadRefreshPending = false;
+        state.loadRefreshQuiet = true;
+        runLoad(nextQuiet).then(finish, fail);
         return;
       }
-      showNotice(error.message || '无法加载管理面板。');
-      if (!state.data) renderFailure(error);
-    }).finally(function () {
       state.loading = false;
-    });
+      state.loadPromise = null;
+      state.loadRefreshPending = false;
+      state.loadRefreshQuiet = true;
+      resolveLoad();
+    }
+
+    function fail(error) {
+      state.loading = false;
+      state.loadPromise = null;
+      state.loadRefreshPending = false;
+      state.loadRefreshQuiet = true;
+      rejectLoad(error);
+    }
+
+    runLoad(quiet === true).then(finish, fail);
+    return completion;
   }
 
   function toggleServer(server, input) {
@@ -1388,17 +1468,19 @@ main {
       toast(server.name + (desired ? ' 已启用' : ' 已停用'), 'ok');
       return load(true);
     }).catch(function (error) {
-      input.checked = !desired;
       toast(error.message || '切换失败', 'bad');
+      load(true);
     }).finally(function () {
       input.disabled = false;
     });
   }
 
-  function deleteServer(server) {
+  function deleteServer(server, button) {
+    if (button && button.dataset.busy === '1') return;
     if (!window.confirm('确定删除服务器 “' + server.name + '”？它也会从所有服务器组中移除。')) {
       return;
     }
+    if (button) setBusy(button, true);
     api('/api/admin/servers/' + encodeURIComponent(server.name), { method: 'DELETE' })
       .then(function () {
         toast('已删除 ' + server.name, 'ok');
@@ -1406,6 +1488,10 @@ main {
       })
       .catch(function (error) {
         toast(error.message || '删除失败', 'bad');
+        load(true);
+      })
+      .finally(function () {
+        if (button) setBusy(button, false);
       });
   }
 
@@ -1421,7 +1507,7 @@ main {
   }
 
   function showEditorError(message) {
-    els.editorError.textContent = message;
+    renderLongText(els.editorError, message, 'editor-error', 'form-error-collapsible');
     els.editorError.hidden = false;
   }
 
@@ -1436,6 +1522,7 @@ main {
       : NEW_SERVER_TEMPLATE;
     els.editorError.hidden = true;
     els.editorError.textContent = '';
+    delete state.expandedErrors['editor-error'];
     if (!els.editorDialog.open) els.editorDialog.showModal();
     window.setTimeout(function () {
       els.editorText.focus();
@@ -1444,6 +1531,7 @@ main {
   }
 
   function saveEditor() {
+    if (els.editorSave.dataset.busy === '1') return;
     var parsed;
     try {
       parsed = JSON.parse(els.editorText.value);
@@ -1495,8 +1583,17 @@ main {
       });
   }
 
+  function hasActiveProbes() {
+    if (state.probingAll) return true;
+    var names = Object.keys(state.probing);
+    for (var index = 0; index < names.length; index += 1) {
+      if (state.probing[names[index]] === true) return true;
+    }
+    return false;
+  }
+
   function probeServers(button) {
-    if (state.probingAll) return;
+    if (hasActiveProbes()) return;
     state.probingAll = true;
     setBusy(button, true);
     var servers = state.data && Array.isArray(state.data.servers) ? state.data.servers : [];
@@ -1548,20 +1645,39 @@ main {
     server.toolsCount = typeof result.toolsCount === 'number' ? result.toolsCount : null;
     server.toolCount = server.toolsCount === null ? undefined : server.toolsCount;
     server.loaded = result.ok === true;
-    server.healthy = result.ok === true;
+    var checkedAt = typeof result.checkedAt === 'number' ? result.checkedAt : Date.now();
+    var health = {
+      healthy: result.ok === true,
+      lastChecked: checkedAt,
+    };
+    if (typeof result.latencyMs === 'number') health.latencyMs = result.latencyMs;
     if (result.ok === true) {
+      server.health = health;
+      server.healthy = true;
       delete server.error;
       delete server.authRequired;
       delete server.authUrl;
       server.status = server.enabled === false ? 'idle' : 'ready';
     } else if (result.authRequired) {
+      health.error = result.error || '需要授权';
+      health.authRequired = true;
+      if (result.authUrl) health.authUrl = result.authUrl;
+      server.health = health;
+      server.healthy = false;
+      server.authType = 'oauth';
+      server.authDetail = '服务器要求 OAuth 授权';
       delete server.error;
       server.authRequired = true;
       if (result.authUrl) server.authUrl = result.authUrl;
+      else delete server.authUrl;
       server.status = 'auth';
     } else {
+      health.error = result.error || '工具检测失败';
+      server.health = health;
+      server.healthy = false;
       delete server.authRequired;
-      server.error = result.error || '工具检测失败';
+      delete server.authUrl;
+      server.error = health.error;
       server.status = 'error';
     }
   }
@@ -1592,7 +1708,7 @@ main {
   }
 
   function autoProbeUnknown() {
-    if (state.autoProbeStarted) return;
+    if (state.autoProbeStarted || hasActiveProbes()) return;
     var servers = state.data && Array.isArray(state.data.servers) ? state.data.servers : [];
     var names = servers
       .filter(function (server) {
@@ -1603,6 +1719,8 @@ main {
       .map(function (server) { return server.name; });
     if (names.length === 0) return;
     state.autoProbeStarted = true;
+    state.probingAll = true;
+    setBusy(els.probeBtn, true);
     names.forEach(function (name) { state.probing[name] = true; });
     render();
     api('/api/admin/probe', {
@@ -1618,6 +1736,8 @@ main {
       .catch(function () {})
       .finally(function () {
         names.forEach(function (name) { delete state.probing[name]; });
+        state.probingAll = false;
+        setBusy(els.probeBtn, false);
         render();
       });
   }
@@ -1638,7 +1758,20 @@ main {
     });
   }
 
+  function invalidateToolsRequest() {
+    state.toolsRequestSeq += 1;
+    state.toolsServer = null;
+  }
+
+  function closeTools() {
+    invalidateToolsRequest();
+    els.toolsDialog.close();
+  }
+
   function openTools(server) {
+    var requestSeq = state.toolsRequestSeq + 1;
+    state.toolsRequestSeq = requestSeq;
+    state.toolsServer = server.name;
     var cached = state.toolsCache[server.name];
     if (Array.isArray(cached)) {
       renderTools(server, cached);
@@ -1652,6 +1785,9 @@ main {
     if (!els.toolsDialog.open) els.toolsDialog.showModal();
     api('/api/admin/servers/' + encodeURIComponent(server.name) + '/tools')
       .then(function (body) {
+        if (requestSeq !== state.toolsRequestSeq || state.toolsServer !== server.name) {
+          return;
+        }
         var data = body && body.data ? body.data : {};
         if (data.authRequired) {
           els.toolsSub.textContent = '需要授权';
@@ -1671,6 +1807,9 @@ main {
         render();
       })
       .catch(function (error) {
+        if (requestSeq !== state.toolsRequestSeq || state.toolsServer !== server.name) {
+          return;
+        }
         els.toolsDialog.close();
         toast(error.message || '读取工具列表失败', 'bad');
       });
@@ -1688,7 +1827,12 @@ main {
     els.oauthOpen.href = hasUrl ? authUrl : '#';
     els.oauthUrl.value = hasUrl ? authUrl : '';
     if (diagnostic) {
-      els.oauthDiagnostic.textContent = diagnostic;
+      renderLongText(
+        els.oauthDiagnostic,
+        diagnostic,
+        'oauth-diagnostic',
+        'oauth-diagnostic-collapsible',
+      );
       els.oauthDiagnostic.hidden = false;
     } else {
       els.oauthDiagnostic.textContent = '';
@@ -1860,18 +2004,25 @@ main {
         toast('复制失败，请手动选择复制', 'bad');
       });
     });
-    els.toolsClose.addEventListener('click', function () { els.toolsDialog.close(); });
-    els.toolsClose2.addEventListener('click', function () { els.toolsDialog.close(); });
+    els.toolsClose.addEventListener('click', closeTools);
+    els.toolsClose2.addEventListener('click', closeTools);
+    els.toolsDialog.addEventListener('close', invalidateToolsRequest);
     var filterButtons = els.statusFilter.querySelectorAll('button');
+    function syncFilterButtons() {
+      for (var index = 0; index < filterButtons.length; index += 1) {
+        var active = filterButtons[index].getAttribute('data-filter') === state.filter;
+        filterButtons[index].classList.toggle('is-active', active);
+        filterButtons[index].setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
+    }
     for (var index = 0; index < filterButtons.length; index += 1) {
       filterButtons[index].addEventListener('click', function () {
         state.filter = this.getAttribute('data-filter') || 'all';
-        for (var inner = 0; inner < filterButtons.length; inner += 1) {
-          filterButtons[inner].classList.toggle('is-active', filterButtons[inner] === this);
-        }
+        syncFilterButtons();
         if (state.data) render();
       });
     }
+    syncFilterButtons();
 
     els.editorClose.addEventListener('click', function () { els.editorDialog.close(); });
     els.editorCancel.addEventListener('click', function () { els.editorDialog.close(); });
@@ -1885,7 +2036,9 @@ main {
 
     [els.editorDialog, els.authDialog, els.oauthDialog, els.toolsDialog].forEach(function (dialog) {
       dialog.addEventListener('click', function (event) {
-        if (event.target === dialog) dialog.close();
+        if (event.target !== dialog) return;
+        if (dialog === els.toolsDialog) closeTools();
+        else dialog.close();
       });
     });
   }

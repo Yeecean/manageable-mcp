@@ -169,7 +169,12 @@ try {
 
   const list = runCli(['list-commands', 'echo', '--json'], env);
   assert(list.status === 0, `list-commands failed: ${list.stderr}`);
-  assert(list.stdout.includes('"name": "echo"'), 'list-commands should discover echo');
+  const listEnvelope = JSON.parse(list.stdout);
+  const listCommands = JSON.parse(listEnvelope.content[0].text);
+  assert(
+    Array.isArray(listCommands) && listCommands.some((command) => command.name === 'echo'),
+    'list-commands should discover echo',
+  );
 
   const discovered = runCli(['list-commands', 'echo'], env);
   assert(discovered.status === 0, `endpoint discovery failed: ${discovered.stderr}`);
@@ -230,7 +235,7 @@ try {
     );
     const attachCall = await attachClient.callTool({
       name: 'invoke_command',
-      arguments: { server: 'echo', command: 'add', parameters: { a: 7, b: 8 } },
+      arguments: { server: 'echo', command_name: 'add', parameters: { a: 7, b: 8 } },
     });
     assert(attachCall.content[0].text === '15', 'attach should proxy downstream calls');
 

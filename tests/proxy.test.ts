@@ -60,7 +60,7 @@ describe('proxy meta-tools', () => {
       name: 'invoke_command',
       arguments: {
         server: 'echo',
-        command: 'echo',
+        command_name: 'echo',
         parameters: { text: 'hello' },
       },
     });

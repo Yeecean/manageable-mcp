@@ -3,7 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { AdminController } from '../admin/controller.js';
 import type { Logger } from '../core/logger.js';
-import { errorMessage } from '../core/errors.js';
+import { AppError, errorMessage } from '../core/errors.js';
 import type { HttpTransportConfig } from '../config/types.js';
 import { createProxyServer } from '../mcp/proxy-server.js';
 import type { ServerManager } from '../mcp/manager.js';
@@ -34,8 +34,13 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
 }
 
 function isLoopbackHostname(hostname: string): boolean {
-  const value = hostname.toLowerCase();
-  return value === 'localhost' || value === '127.0.0.1' || value === '::1' || value === '[::1]';
+  const value = hostname.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1');
+  return (
+    value === 'localhost' ||
+    value === '::1' ||
+    value === '0:0:0:0:0:0:0:1' ||
+    /^127(?:\.\d{1,3}){3}$/.test(value)
+  );
 }
 
 function isLoopbackOrigin(origin: string): boolean {
@@ -68,8 +73,9 @@ function isRequestAllowed(req: http.IncomingMessage, options: HttpTransportConfi
 function isAuthorized(req: http.IncomingMessage, token: string | undefined): boolean {
   if (token === undefined) return true;
   const header = req.headers.authorization;
-  if (!header?.startsWith('Bearer ')) return false;
-  const provided = Buffer.from(header.slice('Bearer '.length));
+  const match = /^Bearer\s+(.+)$/i.exec(header ?? '');
+  if (match === null) return false;
+  const provided = Buffer.from(match[1] as string);
   const expected = Buffer.from(token);
   return provided.length === expected.length && timingSafeEqual(provided, expected);
 }
@@ -152,11 +158,53 @@ function healthPayload(manager: ServerManager): Record<string, unknown> {
   };
 }
 
+function normalizeHttpOptions(options: HttpTransportConfig): HttpTransportConfig {
+  const host = options.host.trim();
+  if (host.length === 0) {
+    throw new AppError('INVALID_PARAMETERS', 'HTTP 绑定主机不能为空');
+  }
+
+  const rawPath = options.path.trim();
+  if (rawPath.length === 0) {
+    throw new AppError('INVALID_PARAMETERS', 'HTTP MCP 路径不能为空');
+  }
+  if (rawPath.includes('?') || rawPath.includes('#')) {
+    throw new AppError('INVALID_PARAMETERS', 'HTTP MCP 路径不能包含查询字符串或片段');
+  }
+  let path = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  if (path.length > 1) path = path.replace(/\/+$/, '');
+
+  for (const reserved of ['/health', '/admin', '/api/admin']) {
+    if (path === reserved || path.startsWith(`${reserved}/`)) {
+      throw new AppError(
+        'INVALID_PARAMETERS',
+        `HTTP MCP 路径 '${path}' 与保留路径 '${reserved}' 冲突`,
+      );
+    }
+  }
+
+  const authToken = options.authToken?.trim();
+  if ((authToken === undefined || authToken.length === 0) && !isLoopbackHostname(host)) {
+    throw new AppError(
+      'INVALID_PARAMETERS',
+      `非回环主机 '${host}' 必须配置认证令牌，已拒绝启动`,
+    );
+  }
+
+  return {
+    ...options,
+    host,
+    path,
+    authToken: authToken === undefined || authToken.length === 0 ? undefined : authToken,
+  };
+}
+
 export async function startHttpServer(
   manager: ServerManager,
   options: HttpTransportConfig,
   logger: Logger,
 ): Promise<RunningHttpServer> {
+  options = normalizeHttpOptions(options);
   const adminController = options.admin
     ? new AdminController(manager, {
         configPath: manager.getConfigPath(),

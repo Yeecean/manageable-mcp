@@ -79,18 +79,29 @@ function parseStore(raw: string): OAuthStoreFile {
 
 async function readStore(logger?: Logger): Promise<OAuthStoreFile> {
   const file = getOAuthStorePath();
+  let raw: string;
   try {
-    const raw = await fs.promises.readFile(file, 'utf8');
-    return parseStore(raw);
+    raw = await fs.promises.readFile(file, 'utf8');
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT') {
-      logger?.warn('Ignoring unreadable OAuth store', {
-        path: file,
-        error: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
-      });
-    }
-    return emptyStore();
+    if (code === 'ENOENT') return emptyStore();
+    logger?.error('读取 OAuth 存储失败', { path: file, code: code ?? 'UNKNOWN' });
+    throw new AppError(
+      'INTERNAL_ERROR',
+      `读取 OAuth 存储 ${file} 失败（${code ?? '未知错误'}）；为避免覆盖，已停止后续写入。`,
+      { path: file },
+    );
+  }
+
+  try {
+    return parseStore(raw);
+  } catch {
+    logger?.error('OAuth 存储格式损坏', { path: file });
+    throw new AppError(
+      'INTERNAL_ERROR',
+      `OAuth 存储 ${file} 已损坏；为避免覆盖，已停止后续写入。请手动修复或删除该文件。`,
+      { path: file },
+    );
   }
 }
 

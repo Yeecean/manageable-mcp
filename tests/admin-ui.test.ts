@@ -9,11 +9,12 @@ describe('admin UI error rendering', () => {
     expect(html).toContain('.error-summary-text');
     expect(html).toContain('.error-detail');
     expect(html).toContain('function isLongError(text)');
-    expect(html).toContain('value.length > 160');
-    expect(html).toContain('buildErrorNotice(problem)');
+    expect(html).toContain('LONG_ERROR_CHAR_LIMIT = 160');
+    expect(html).toContain('buildErrorNotice(problem, server.name)');
+    expect(html).toContain('state.expandedErrors[key]');
   });
 
   it('keeps short errors directly visible', () => {
-    expect(html).toContain("if (!isLongError(message)) return el('p', 'card-error', message);");
+    expect(html).toContain("if (!isLongError(message)) return el('p', className || 'card-error', message);");
   });
 });

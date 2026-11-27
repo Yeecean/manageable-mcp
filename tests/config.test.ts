@@ -100,6 +100,8 @@ describe('config parsing', () => {
 
   it('expands environment variables and secret files', () => {
     vi.stubEnv('DEMO_TOKEN', 'abc123');
+    vi.stubEnv('OAUTH_ID', 'oauth-client');
+    vi.stubEnv('OAUTH_SCOPE', 'mcp.read');
     const secretPath = path.join(os.tmpdir(), 'manageable-mcp-v2-secret.txt');
     fs.writeFileSync(secretPath, 'file-secret\n');
     try {
@@ -109,10 +111,15 @@ describe('config parsing', () => {
             {
               name: 'remote',
               description: 'Remote',
-              url: 'https://example.com/mcp',
+              url: `https://example.com/mcp?key={file:${secretPath}}`,
               headers: {
                 Authorization: 'Bearer ${DEMO_TOKEN}',
                 'X-File-Secret': `{file:${secretPath}}`,
+              },
+              oauth: {
+                clientId: '${OAUTH_ID}',
+                clientSecret: `{file:${secretPath}}`,
+                scope: '${OAUTH_SCOPE}',
               },
             },
           ],
@@ -121,6 +128,14 @@ describe('config parsing', () => {
       );
       expect(config.servers[0]?.headers.Authorization).toBe('Bearer abc123');
       expect(config.servers[0]?.headers['X-File-Secret']).toBe('file-secret');
+      expect(config.servers[0]?.url).toBe(
+        'https://example.com/mcp?key=file-secret',
+      );
+      expect(config.servers[0]?.oauth).toMatchObject({
+        clientId: 'oauth-client',
+        clientSecret: 'file-secret',
+        scope: 'mcp.read',
+      });
     } finally {
       fs.rmSync(secretPath, { force: true });
     }
@@ -182,15 +197,17 @@ describe('config parsing', () => {
   });
 
   it('rejects reserved health paths and oversized timeouts', () => {
-    expect(() =>
-      parseConfig(
-        {
-          servers: [{ name: 'x', description: 'one', command: 'node' }],
-          transport: { path: '/health' },
-        },
-        base,
-      ),
-    ).toThrow(/健康检查保留路径/);
+    for (const pathValue of ['/health', '/health/', '/health//']) {
+      expect(() =>
+        parseConfig(
+          {
+            servers: [{ name: 'x', description: 'one', command: 'node' }],
+            transport: { path: pathValue },
+          },
+          base,
+        ),
+      ).toThrow(/健康检查保留路径/);
+    }
 
     expect(() =>
       parseConfig(
@@ -200,6 +217,46 @@ describe('config parsing', () => {
         base,
       ),
     ).toThrow(/timeoutMs 必须 <=/);
+  });
+
+  it('rejects empty expanded hosts and oversized health-check timers', () => {
+    vi.stubEnv('EMPTY_HOST', '   ');
+    vi.stubEnv('SPACE_TOKEN', '   ');
+    expect(() =>
+      parseConfig(
+        {
+          servers: [{ name: 'x', description: 'one', command: 'node' }],
+          transport: { host: '${EMPTY_HOST}' },
+        },
+        base,
+      ),
+    ).toThrow(/transport\.host 展开后不能为空/);
+
+    expect(() =>
+      parseConfig(
+        {
+          servers: [{ name: 'x', description: 'one', command: 'node' }],
+          transport: { authToken: '${SPACE_TOKEN}' },
+        },
+        base,
+      ),
+    ).toThrow(/transport\.authToken 展开后不能为空/);
+
+    expect(() =>
+      parseConfig(
+        {
+          servers: [
+            {
+              name: 'x',
+              description: 'one',
+              command: 'node',
+              healthCheck: { enabled: true, timeoutMs: 2_147_483_648 },
+            },
+          ],
+        },
+        base,
+      ),
+    ).toThrow(/healthCheck\.timeoutMs 必须 <=/);
   });
 });
 

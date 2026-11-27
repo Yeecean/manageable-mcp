@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   selectClientAuthMethod,
   type OAuthDiscoveryState,
@@ -43,6 +43,21 @@ export interface ManageableOAuthProvider extends OAuthFlowProvider {
 }
 
 const providers = new Map<string, OAuthProviderImpl>();
+
+function providerConfigFingerprint(config: OAuthConfig): string {
+  const extraHeaders = Object.entries(config.extraHeaders ?? {})
+    .sort(([left], [right]) => left.localeCompare(right));
+  const normalized = {
+    clientId: config.clientId ?? null,
+    clientSecret: config.clientSecret ?? null,
+    scope: config.scope ?? null,
+    callbackPort: config.callbackPort ?? null,
+    extraHeaders,
+  };
+  return createHash('sha256')
+    .update(JSON.stringify(normalized))
+    .digest('hex');
+}
 
 class OAuthProviderImpl implements ManageableOAuthProvider {
   readonly serverName: string;
@@ -381,7 +396,7 @@ export function createOAuthProvider(
     );
   }
 
-  const key = oauthStoreKey(serverName, serverUrl);
+  const key = `${oauthStoreKey(serverName, serverUrl)}:${providerConfigFingerprint(config)}`;
   const existing = providers.get(key);
   if (existing !== undefined) return existing;
 

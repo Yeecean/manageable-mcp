@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'INVALID_PARAMETERS'
   | 'TOOL_EXECUTION_FAILED'
   | 'TIMEOUT'
+  | 'PAGINATION_LIMIT'
   | 'INTERNAL_ERROR';
 
 export class AppError extends Error {

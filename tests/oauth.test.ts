@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
+import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -14,10 +15,13 @@ import { silentLogger, type Logger } from '../src/core/logger.js';
 import { ServerManager } from '../src/mcp/manager.js';
 import {
   createOAuthProvider,
+  getOrStartOAuthCallbackServer,
   oauthStoreKey,
+  pendingOAuthFlowCount,
   readOAuthStoreEntry,
   resetOAuthProvidersForTests,
   sanitizeErrorMessage,
+  updateOAuthStoreEntry,
   type ManageableOAuthProvider,
 } from '../src/oauth/index.js';
 
@@ -521,6 +525,23 @@ async function captureAuthorizationError(
   throw new Error('expected an OAuth authorization redirect');
 }
 
+async function getFreePort(): Promise<number> {
+  const server = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    throw new Error('free-port helper has no address');
+  }
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return address.port;
+}
+
 const originalStateDir = process.env.MANAGEABLE_MCP_STATE_DIR;
 let stateDir: string;
 let fakeServer: FakeOAuthMcpServer | undefined;
@@ -562,7 +583,14 @@ describe('OAuth provider', () => {
       spy.logger,
     );
 
-    expect(createOAuthProvider('dynamic', fakeServer.resourceUrl, { callbackPort: 0 }, spy.logger)).toBe(provider);
+    expect(
+      createOAuthProvider(
+        'dynamic',
+        fakeServer.resourceUrl,
+        { callbackPort: 0, scope: 'mcp.read' },
+        spy.logger,
+      ),
+    ).toBe(provider);
     expect(provider.callbackPort).toBeGreaterThan(0);
 
     const client = new Client(
@@ -794,6 +822,117 @@ describe('OAuth provider', () => {
     expect(spy.text()).not.toContain('access-token-value');
     expect(spy.text()).not.toContain('refresh-token-value');
     expect(spy.text()).not.toContain('code-verifier-value');
+  });
+
+  it('creates a new provider when static OAuth config changes', async () => {
+    const url = 'http://127.0.0.1:1/mcp';
+    const first = createOAuthProvider(
+      'fingerprint',
+      url,
+      {
+        clientId: 'client-A',
+        clientSecret: 'secret-A',
+        callbackPort: 0,
+        scope: 'scope-a',
+      },
+      silentLogger,
+    );
+    const same = createOAuthProvider(
+      'fingerprint',
+      url,
+      {
+        clientId: 'client-A',
+        clientSecret: 'secret-A',
+        callbackPort: 0,
+        scope: 'scope-a',
+      },
+      silentLogger,
+    );
+    const second = createOAuthProvider(
+      'fingerprint',
+      url,
+      {
+        clientId: 'client-B',
+        clientSecret: 'secret-B',
+        callbackPort: 0,
+        scope: 'scope-b',
+      },
+      silentLogger,
+    );
+
+    expect(same).toBe(first);
+    expect(second).not.toBe(first);
+    await expect(first.clientInformation()).resolves.toMatchObject({
+      client_id: 'client-A',
+      client_secret: 'secret-A',
+    });
+    await expect(second.clientInformation()).resolves.toMatchObject({
+      client_id: 'client-B',
+      client_secret: 'secret-B',
+    });
+  });
+
+  it('fails closed on a corrupt OAuth store without overwriting it', async () => {
+    const file = getOAuthStorePath();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const corrupt = '{"version":1,"entries":{"leaked":"do-not-copy"}';
+    fs.writeFileSync(file, corrupt, 'utf8');
+
+    let message = '';
+    try {
+      await updateOAuthStoreEntry(
+        'corrupt',
+        'http://127.0.0.1:1/mcp',
+        (entry) => {
+          entry.codeVerifier = 'replacement-verifier';
+        },
+        silentLogger,
+      );
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).toContain('oauth.json');
+    expect(message).not.toContain('do-not-copy');
+    expect(fs.readFileSync(file, 'utf8')).toBe(corrupt);
+  });
+
+  it('does not consume a flow when the callback reaches the wrong local port', async () => {
+    fakeServer = new FakeOAuthMcpServer({ registration: true });
+    await fakeServer.start();
+    const provider = await startProvider(
+      'wrong-port',
+      fakeServer.resourceUrl,
+      { callbackPort: 0 },
+      silentLogger,
+    );
+    const authorizationError = await captureAuthorizationError(provider, fakeServer.resourceUrl);
+    const authorizationResponse = await fetch(authorizationError.authUrl, { redirect: 'manual' });
+    expect(authorizationResponse.status).toBe(302);
+    const callbackLocation = authorizationResponse.headers.get('location');
+    expect(callbackLocation).toBeTruthy();
+
+    const wrongPort = await getFreePort();
+    const wrongServer = await getOrStartOAuthCallbackServer(wrongPort, silentLogger);
+    try {
+      const callbackUrl = new URL(callbackLocation as string);
+      const wrongResponse = await fetch(
+        `http://127.0.0.1:${wrongPort}/callback?code=${encodeURIComponent(
+          callbackUrl.searchParams.get('code') ?? '',
+        )}&state=${encodeURIComponent(callbackUrl.searchParams.get('state') ?? '')}`,
+      );
+      expect(wrongResponse.status).toBe(400);
+      expect(await wrongResponse.text()).toContain('预期之外的本地回调端口');
+      expect(pendingOAuthFlowCount()).toBe(1);
+
+      const callbackResponse = await fetch(callbackLocation as string);
+      const callbackHtml = await callbackResponse.text();
+      expect(callbackResponse.status, callbackHtml).toBe(200);
+      expect(callbackHtml).toContain('授权完成');
+      expect(fakeServer.tokenRequests).toHaveLength(1);
+    } finally {
+      await wrongServer.close();
+    }
   });
 
   it('keys the store by server name and normalized URL', () => {

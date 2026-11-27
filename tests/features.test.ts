@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -83,6 +83,15 @@ describe('group scoping', () => {
     expect(denied._meta).toMatchObject({
       manageableMcpProxyError: { code: 'SERVER_NOT_FOUND' },
     });
+
+    const deniedBatch = await client.callTool({
+      name: 'list_commands',
+      arguments: { servers: ['echo', 'prompt'] },
+    });
+    expect(deniedBatch.isError).toBe(true);
+    expect(deniedBatch._meta).toMatchObject({
+      manageableMcpProxyError: { code: 'SERVER_NOT_FOUND' },
+    });
     expect(manager.hasPromptForwarding(scope)).toBe(false);
   });
 });
@@ -140,14 +149,14 @@ describe('permission policy', () => {
 
     const blocked = await client.callTool({
       name: 'invoke_command',
-      arguments: { server: 'echo', command: 'echo', parameters: { text: 'nope' } },
+      arguments: { server: 'echo', command_name: 'echo', parameters: { text: 'nope' } },
     });
     expect(blocked.isError).toBe(true);
     expect(blocked.content?.[0]).toMatchObject({ text: 'POLICY_BLOCKED: echo is blocked' });
 
     const globallyBlocked = await client.callTool({
       name: 'invoke_command',
-      arguments: { server: 'echo', command: 'add', parameters: { a: 1, b: 2 } },
+      arguments: { server: 'echo', command_name: 'add', parameters: { a: 1, b: 2 } },
     });
     expect(globallyBlocked.isError).toBe(true);
     expect(globallyBlocked._meta).toMatchObject({
@@ -163,5 +172,162 @@ describe('permission policy', () => {
       ],
     });
     expect(decision).toMatchObject({ action: 'allow', source: 'global-rule' });
+  });
+});
+
+describe('meta-tool contract', () => {
+  it('returns legacy server fields and supports case-insensitive filtering', async () => {
+    const manager = new ServerManager([
+      serverConfig('echo', 'echo-server.mjs', {
+        tags: ['Local', 'Fixture'],
+        examples: [{ command: 'echo', description: 'Echo text' }],
+      }),
+      serverConfig('prompt', 'prompt-server.mjs'),
+    ]);
+    const client = await connectedClient(manager);
+
+    const result = await client.callTool({
+      name: 'list_servers',
+      arguments: { filter: 'LOCAL' },
+    });
+    const payload = textPayload(result) as {
+      version: string;
+      servers: Array<Record<string, unknown>>;
+    };
+    expect(payload.version).toBe('0.2.0');
+    expect(payload.servers).toHaveLength(1);
+    expect(payload.servers[0]).toMatchObject({
+      name: 'echo',
+      tools_count: null,
+      tags: ['Local', 'Fixture'],
+      examples: [{ command: 'echo', description: 'Echo text' }],
+    });
+  });
+
+  it('supports single and batch command discovery with refresh', async () => {
+    const manager = new ServerManager([
+      serverConfig('first', 'echo-server.mjs'),
+      serverConfig('second', 'echo-server.mjs'),
+    ]);
+    const client = await connectedClient(manager);
+    const spy = vi.spyOn(manager, 'listTools');
+
+    const single = await client.callTool({
+      name: 'list_commands',
+      arguments: { server: 'first', refresh: true },
+    });
+    const singleCommands = textPayload(single) as Array<{ name: string }>;
+    expect(Array.isArray(singleCommands)).toBe(true);
+    expect(singleCommands.map((command) => command.name)).toEqual(['echo', 'add', 'fail']);
+    expect(spy).toHaveBeenCalledWith('first', true);
+
+    const batch = await client.callTool({
+      name: 'list_commands',
+      arguments: { servers: ['first', 'second'] },
+    });
+    const batchCommands = textPayload(batch) as Record<string, Array<{ name: string }>>;
+    expect(Object.keys(batchCommands)).toEqual(['first', 'second']);
+    expect(batchCommands.second?.map((command) => command.name)).toEqual(['echo', 'add', 'fail']);
+
+    const invalid = await client.callTool({
+      name: 'list_commands',
+      arguments: { server: 'first', servers: ['second'] },
+    });
+    expect(invalid.isError).toBe(true);
+    expect(invalid._meta).toMatchObject({
+      manageableMcpProxyError: { code: 'INVALID_PARAMETERS' },
+    });
+
+    const missing = await client.callTool({
+      name: 'list_commands',
+      arguments: {},
+    });
+    expect(missing._meta).toMatchObject({
+      manageableMcpProxyError: { code: 'INVALID_PARAMETERS' },
+    });
+  });
+
+  it('describes command names with schemas and refresh', async () => {
+    const manager = new ServerManager([serverConfig('echo', 'echo-server.mjs')]);
+    const client = await connectedClient(manager);
+    const spy = vi.spyOn(manager, 'listTools');
+
+    const result = await client.callTool({
+      name: 'describe_commands',
+      arguments: { server: 'echo', command_names: ['echo', 'add'], refresh: true },
+    });
+    const schemas = textPayload(result) as Array<Record<string, unknown>>;
+    expect(schemas).toHaveLength(2);
+    expect(schemas[0]).toMatchObject({
+      name: 'echo',
+      description: 'Echo the supplied text.',
+      inputSchema: { type: 'object' },
+    });
+    expect(spy).toHaveBeenCalledWith('echo', true);
+  });
+
+  it('preserves title, outputSchema, annotations, and _meta in descriptions', async () => {
+    const manager = new ServerManager([serverConfig('echo', 'echo-server.mjs')]);
+    const client = await connectedClient(manager);
+    vi.spyOn(manager, 'listTools').mockResolvedValue([
+      {
+        name: 'rich',
+        title: 'Rich Tool',
+        description: 'Rich schema',
+        inputSchema: { type: 'object', properties: { value: { type: 'string' } } },
+        outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+        annotations: { readOnlyHint: true },
+        _meta: { source: 'fixture' },
+      },
+    ]);
+
+    const result = await client.callTool({
+      name: 'describe_commands',
+      arguments: { server: 'echo', command_names: ['rich'] },
+    });
+    expect(textPayload(result)).toEqual([
+      {
+        name: 'rich',
+        title: 'Rich Tool',
+        description: 'Rich schema',
+        inputSchema: { type: 'object', properties: { value: { type: 'string' } } },
+        outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+        annotations: { readOnlyHint: true },
+        _meta: { source: 'fixture' },
+      },
+    ]);
+  });
+
+  it('requires command_name and rejects flattened downstream arguments', async () => {
+    const manager = new ServerManager([serverConfig('echo', 'echo-server.mjs')]);
+    const client = await connectedClient(manager);
+
+    const missing = await client.callTool({
+      name: 'invoke_command',
+      arguments: { server: 'echo', parameters: { text: 'missing name' } },
+    });
+    expect(missing.isError).toBe(true);
+    expect(missing._meta).toMatchObject({
+      manageableMcpProxyError: { code: 'INVALID_PARAMETERS' },
+    });
+
+    const flattened = await client.callTool({
+      name: 'invoke_command',
+      arguments: {
+        server: 'echo',
+        command_name: 'echo',
+        text: 'flattened',
+      },
+    });
+    expect(flattened.isError).toBe(true);
+    expect(flattened.content?.[0]).toMatchObject({
+      text: expect.stringContaining('放在 parameters 内'),
+    });
+    expect(flattened._meta).toMatchObject({
+      manageableMcpProxyError: {
+        code: 'INVALID_PARAMETERS',
+        unexpectedKeys: ['text'],
+      },
+    });
   });
 });

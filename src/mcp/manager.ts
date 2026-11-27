@@ -8,13 +8,16 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { AppError, OAuthAuthorizationRequiredError, errorMessage } from '../core/errors.js';
 import { silentLogger, type Logger } from '../core/logger.js';
+import { redactCommandForDisplay, redactUrlForDisplay } from '../core/redaction.js';
 import { TimeoutError, withTimeout } from '../core/timeout.js';
+import { sanitizeErrorMessage } from '../oauth/sanitize.js';
 import type {
   EmbedServerSummariesConfig,
   GlobalPermissions,
   GroupConfig,
   HealthConfig,
   ServerConfig,
+  ServerExample,
 } from '../config/types.js';
 import { connectDownstream, type DownstreamConnection } from './downstream.js';
 import { decodePromptName, encodePromptName } from './prompt-namespace.js';
@@ -40,12 +43,15 @@ export interface ServerSummary {
   target: string;
   status: ServerStatus;
   toolCount?: number;
+  tools_count: number | null;
+  examples?: ServerExample[];
   tags: string[];
   healthy: boolean;
   available: boolean;
   loaded: boolean;
   authRequired?: boolean;
   authUrl?: string;
+  auth_required?: string;
   error?: string;
   health?: ServerHealth;
 }
@@ -114,6 +120,9 @@ export class ServerManager {
   private readonly configPath?: string;
   private readonly logger: Logger;
   private closing = false;
+  private activeOperations = 0;
+  private operationWaiters: Array<() => void> = [];
+  private closePromise?: Promise<void>;
   private healthTimer?: NodeJS.Timeout;
   private idleTimer?: NodeJS.Timeout;
   private healthMonitorRunning = false;
@@ -129,12 +138,23 @@ export class ServerManager {
     this.logger = options.logger ?? silentLogger;
   }
 
-  listServers(scope?: ProxyScope): ServerSummary[] {
+  listServers(scope?: ProxyScope, filter?: string): ServerSummary[] {
+    const needle = filter?.toLowerCase();
     return Array.from(this.entries.values())
       .filter((entry) => scope === undefined || scope.allowedServers.has(entry.config.name))
+      .filter((entry) => {
+        if (needle === undefined || needle.length === 0) return true;
+        return (
+          entry.config.name.toLowerCase().includes(needle) ||
+          entry.config.description.toLowerCase().includes(needle) ||
+          (entry.config.tags ?? []).some((tag) => tag.toLowerCase().includes(needle))
+        );
+      })
       .map((entry) => {
         const type: 'local' | 'remote' = entry.config.url === undefined ? 'local' : 'remote';
         const authRequired = entry.health?.authRequired === true || entry.status === 'auth';
+        const authUrl = entry.health?.authUrl;
+        const toolsCount = entry.tools?.length ?? null;
         return {
           name: entry.config.name,
           description: entry.config.description,
@@ -144,12 +164,15 @@ export class ServerManager {
           target: targetOf(entry.config),
           status: entry.status,
           ...(entry.tools === undefined ? {} : { toolCount: entry.tools.length }),
+          tools_count: toolsCount,
+          ...(entry.config.examples === undefined ? {} : { examples: entry.config.examples }),
           tags: entry.config.tags ?? [],
           healthy: entry.health?.healthy ?? true,
           available: true,
           loaded: entry.tools !== undefined,
           ...(authRequired ? { authRequired: true } : {}),
-          ...(entry.health?.authUrl === undefined ? {} : { authUrl: entry.health.authUrl }),
+          ...(authUrl === undefined ? {} : { authUrl }),
+          ...(authRequired && authUrl !== undefined ? { auth_required: authUrl } : {}),
           ...(entry.error === undefined ? {} : { error: entry.error }),
           ...(entry.health === undefined ? {} : { health: entry.health }),
         };
@@ -185,21 +208,22 @@ export class ServerManager {
   }
 
   async listTools(name: string, refresh = false): Promise<Tool[]> {
-    const entry = this.requireEntry(name);
-    this.assertOpen();
-    if (!refresh && entry.tools) return entry.tools;
+    return await this.runOperation(async () => {
+      const entry = this.requireEntry(name);
+      if (!refresh && entry.tools) return entry.tools;
 
-    try {
-      const client = await this.ensureConnected(entry);
-      const tools = await client.listTools();
-      entry.tools = tools;
-      entry.status = 'ready';
-      entry.error = undefined;
-      return tools;
-    } catch (error) {
-      if (!(error instanceof OAuthAuthorizationRequiredError)) await this.fail(entry, error);
-      throw this.connectionError(error, `列出服务器 '${name}' 的工具失败`, name);
-    }
+      const startedAt = Date.now();
+      try {
+        const client = await this.ensureConnected(entry);
+        const tools = await client.listTools();
+        entry.tools = tools;
+        this.markReady(entry, Date.now() - startedAt);
+        return tools;
+      } catch (error) {
+        await this.fail(entry, error);
+        throw this.connectionError(error, `列出服务器 '${name}' 的工具失败`, name);
+      }
+    });
   }
 
   async callTool(
@@ -208,33 +232,35 @@ export class ServerManager {
     args: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<CallToolResult> {
-    const entry = this.requireEntry(name);
-    this.assertOpen();
-    let client: DownstreamConnection;
-    try {
-      client = await this.ensureConnected(entry);
-    } catch (error) {
-      throw this.connectionError(error, `连接服务器 '${name}' 失败`, name);
-    }
+    return await this.runOperation(async () => {
+      const entry = this.requireEntry(name);
+      let client: DownstreamConnection;
+      try {
+        client = await this.ensureConnected(entry);
+      } catch (error) {
+        await this.fail(entry, error);
+        throw this.connectionError(error, `连接服务器 '${name}' 失败`, name);
+      }
 
-    try {
-      const result = await client.callTool(toolName, args, signal);
-      entry.status = 'ready';
-      entry.error = undefined;
-      return result;
-    } catch (error) {
-      const connectionFailure = isConnectionFailure(error);
-      if (connectionFailure) await this.fail(entry, error);
-      throw new AppError(
-        error instanceof TimeoutError
-          ? 'TIMEOUT'
-          : connectionFailure
-            ? 'SERVER_UNAVAILABLE'
-            : 'TOOL_EXECUTION_FAILED',
-        `服务器 '${name}' 上的工具 '${toolName}' 调用失败：${errorMessage(error)}`,
-        { server: name, tool: toolName },
-      );
-    }
+      const startedAt = Date.now();
+      try {
+        const result = await client.callTool(toolName, args, signal);
+        this.markReady(entry, Date.now() - startedAt);
+        return result;
+      } catch (error) {
+        const connectionFailure = isConnectionFailure(error);
+        if (connectionFailure) await this.fail(entry, error);
+        throw new AppError(
+          error instanceof TimeoutError
+            ? 'TIMEOUT'
+            : connectionFailure
+              ? 'SERVER_UNAVAILABLE'
+              : 'TOOL_EXECUTION_FAILED',
+          `服务器 '${name}' 上的工具 '${toolName}' 调用失败：${sanitizeErrorMessage(errorMessage(error))}`,
+          { server: name, tool: toolName },
+        );
+      }
+    });
   }
 
   hasPromptForwarding(scope?: ProxyScope): boolean {
@@ -247,45 +273,43 @@ export class ServerManager {
   }
 
   async listPrompts(scope?: ProxyScope): Promise<Prompt[]> {
-    this.assertOpen();
-    const candidates = Array.from(this.entries.values()).filter(
-      (entry) =>
-        entry.config.enabled &&
-        entry.config.forwardPrompts &&
-        (scope === undefined || scope.allowedServers.has(entry.config.name)),
-    );
-    const results = await Promise.allSettled(
-      candidates.map(async (entry) => {
-        const client = await this.ensureConnected(entry);
-        if (!client.promptsSupported) return [];
-        const prompts = await client.listPrompts();
-        return prompts.map((prompt) => ({
-          ...prompt,
-          name: encodePromptName(entry.config.name, prompt.name),
-        }));
-      }),
-    );
+    return await this.runOperation(async () => {
+      const candidates = Array.from(this.entries.values()).filter(
+        (entry) =>
+          entry.config.enabled &&
+          entry.config.forwardPrompts &&
+          (scope === undefined || scope.allowedServers.has(entry.config.name)),
+      );
+      const results = await Promise.allSettled(
+        candidates.map(async (entry) => {
+          const startedAt = Date.now();
+          const client = await this.ensureConnected(entry);
+          if (!client.promptsSupported) {
+            this.markReady(entry, Date.now() - startedAt);
+            return [];
+          }
+          const prompts = await client.listPrompts();
+          this.markReady(entry, Date.now() - startedAt);
+          return prompts.map((prompt) => ({
+            ...prompt,
+            name: encodePromptName(entry.config.name, prompt.name),
+          }));
+        }),
+      );
 
-    const prompts: Prompt[] = [];
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        prompts.push(...result.value);
-        return;
+      const prompts: Prompt[] = [];
+      for (let index = 0; index < results.length; index += 1) {
+        const result = results[index];
+        const entry = candidates[index];
+        if (!result || !entry) continue;
+        if (result.status === 'fulfilled') {
+          prompts.push(...result.value);
+        } else {
+          await this.fail(entry, result.reason);
+        }
       }
-      const entry = candidates[index];
-      if (!entry) return;
-      entry.error = errorMessage(result.reason);
-      if (result.reason instanceof OAuthAuthorizationRequiredError) {
-        entry.status = 'auth';
-        entry.health = {
-          healthy: false,
-          lastChecked: Date.now(),
-          authRequired: true,
-          authUrl: result.reason.authUrl,
-        };
-      }
+      return prompts;
     });
-    return prompts;
   }
 
   async getPrompt(
@@ -294,36 +318,41 @@ export class ServerManager {
     scope?: ProxyScope,
     signal?: AbortSignal,
   ): Promise<GetPromptResult> {
-    this.assertOpen();
-    const decoded = decodePromptName(namespacedName);
-    if (!decoded) {
-      throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
-    }
-    if (scope !== undefined && !scope.allowedServers.has(decoded.serverName)) {
-      throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
-    }
-    const entry = this.requireEntry(decoded.serverName);
-    if (!entry.config.forwardPrompts) {
-      throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
-    }
+    return await this.runOperation(async () => {
+      const decoded = decodePromptName(namespacedName);
+      if (!decoded) {
+        throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
+      }
+      if (scope !== undefined && !scope.allowedServers.has(decoded.serverName)) {
+        throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
+      }
+      const entry = this.requireEntry(decoded.serverName);
+      if (!entry.config.forwardPrompts) {
+        throw new AppError('PROMPT_NOT_FOUND', `未找到提示词 '${namespacedName}'`);
+      }
 
-    try {
-      const client = await this.ensureConnected(entry);
-      if (!client.promptsSupported) {
-        throw new AppError(
-          'PROMPT_NOT_FOUND',
-          `服务器 '${decoded.serverName}' 不支持提示词`,
+      const startedAt = Date.now();
+      try {
+        const client = await this.ensureConnected(entry);
+        if (!client.promptsSupported) {
+          throw new AppError(
+            'PROMPT_NOT_FOUND',
+            `服务器 '${decoded.serverName}' 不支持提示词`,
+          );
+        }
+        const result = await client.getPrompt(decoded.promptName, args, signal);
+        this.markReady(entry, Date.now() - startedAt);
+        return result;
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        await this.fail(entry, error);
+        throw this.connectionError(
+          error,
+          `获取提示词 '${namespacedName}' 失败`,
+          decoded.serverName,
         );
       }
-      return await client.getPrompt(decoded.promptName, args, signal);
-    } catch (error) {
-      if (error instanceof AppError) throw error;
-      throw this.connectionError(
-        error,
-        `获取提示词 '${namespacedName}' 失败`,
-        decoded.serverName,
-      );
-    }
+    });
   }
 
   async probeAllServers(names?: string[]): Promise<ServerProbeResult[]> {
@@ -338,29 +367,31 @@ export class ServerManager {
   }
 
   async probeServer(name: string, options: ProbeOptions = {}): Promise<ServerProbeResult> {
-    const entry = this.entries.get(name);
-    if (!entry) {
-      throw new AppError(
-        'SERVER_NOT_FOUND',
-        `未知服务器 '${name}'。请先调用 list_servers。`,
-        { server: name },
-      );
-    }
-    if (!entry.config.enabled) {
-      throw new AppError('SERVER_DISABLED', `服务器 '${name}' 已禁用。`, { server: name });
-    }
+    return await this.runOperation(async () => {
+      const entry = this.entries.get(name);
+      if (!entry) {
+        throw new AppError(
+          'SERVER_NOT_FOUND',
+          `未知服务器 '${name}'。请先调用 list_servers。`,
+          { server: name },
+        );
+      }
+      if (!entry.config.enabled) {
+        throw new AppError('SERVER_DISABLED', `服务器 '${name}' 已禁用。`, { server: name });
+      }
 
-    if (entry.probing) return entry.probing;
-    const timeoutMs = options.timeoutMs !== undefined && options.timeoutMs > 0
-      ? options.timeoutMs
-      : this.healthConfig.timeoutMs;
-    const probe = this.probeEntry(entry, timeoutMs, options.includeTools === true);
-    entry.probing = probe;
-    try {
-      return await probe;
-    } finally {
-      if (entry.probing === probe) entry.probing = undefined;
-    }
+      if (entry.probing) return entry.probing;
+      const timeoutMs = options.timeoutMs !== undefined && options.timeoutMs > 0
+        ? options.timeoutMs
+        : this.healthConfig.timeoutMs;
+      const probe = this.probeEntry(entry, timeoutMs, options.includeTools === true);
+      entry.probing = probe;
+      try {
+        return await probe;
+      } finally {
+        if (entry.probing === probe) entry.probing = undefined;
+      }
+    });
   }
 
   async probeServers(
@@ -386,7 +417,7 @@ export class ServerManager {
             name,
             ok: false,
             toolsCount: null,
-            error: errorMessage(error),
+            error: sanitizeErrorMessage(errorMessage(error)),
             checkedAt: Date.now(),
           };
         }
@@ -420,8 +451,24 @@ export class ServerManager {
     const wasClosing = this.closing;
     this.closing = true;
     this.stopHealthMonitor();
-    await this.closeConnections();
-    this.entries = buildEntries(servers);
+
+    const nextEntries = buildEntries(servers);
+    const entriesToClose: ServerEntry[] = [];
+    for (const [name, next] of nextEntries) {
+      const previous = this.entries.get(name);
+      if (previous === undefined) continue;
+      if (stableSerialize(previous.config) === stableSerialize(next.config)) {
+        nextEntries.set(name, previous);
+      } else {
+        entriesToClose.push(previous);
+      }
+    }
+    for (const [name, previous] of this.entries) {
+      if (!nextEntries.has(name)) entriesToClose.push(previous);
+    }
+
+    await this.closeEntries(entriesToClose);
+    this.entries = nextEntries;
     this.groups = options.groups ?? {};
     this.globalPermissions = options.permissions ?? { rules: [] };
     this.healthConfig = options.health ?? DEFAULT_HEALTH;
@@ -431,9 +478,11 @@ export class ServerManager {
   }
 
   async closeAll(): Promise<void> {
+    if (this.closePromise !== undefined) return await this.closePromise;
     this.closing = true;
     this.stopHealthMonitor();
-    await this.closeConnections();
+    this.closePromise = this.closeConnections();
+    await this.closePromise;
   }
 
   private async probeEntry(
@@ -451,13 +500,7 @@ export class ServerManager {
         `tool probe '${name}'`,
       );
       entry.tools = tools;
-      entry.status = 'ready';
-      entry.error = undefined;
-      entry.health = {
-        healthy: true,
-        lastChecked: Date.now(),
-        latencyMs: Date.now() - startedAt,
-      };
+      this.markReady(entry, Date.now() - startedAt);
       return {
         name,
         ok: true,
@@ -476,22 +519,22 @@ export class ServerManager {
     } catch (error) {
       const authRequired = error instanceof OAuthAuthorizationRequiredError;
       entry.status = authRequired ? 'auth' : 'error';
-      entry.error = errorMessage(error);
+      entry.error = sanitizeErrorMessage(errorMessage(error));
       entry.health = {
         healthy: false,
         lastChecked: Date.now(),
         latencyMs: Date.now() - startedAt,
-        error: errorMessage(error),
+        error: sanitizeErrorMessage(errorMessage(error)),
         ...(authRequired
           ? { authRequired: true, authUrl: (error as OAuthAuthorizationRequiredError).authUrl }
           : {}),
       };
-      if (!authRequired && isConnectionFailure(error)) await this.fail(entry, error);
+      await this.fail(entry, error);
       return {
         name,
         ok: false,
         toolsCount: null,
-        error: authRequired ? '需要授权' : errorMessage(error),
+        error: authRequired ? '需要授权' : sanitizeErrorMessage(errorMessage(error)),
         ...(authRequired
           ? { authRequired: (error as OAuthAuthorizationRequiredError).authUrl }
           : {}),
@@ -510,22 +553,31 @@ export class ServerManager {
   }
 
   private async closeConnections(): Promise<void> {
-    const pending = Array.from(this.entries.values())
-      .map((entry) => entry.connecting)
-      .filter((promise): promise is Promise<DownstreamConnection> => promise !== undefined);
+    await this.waitForOperations();
+    await this.closeEntries(Array.from(this.entries.values()));
+  }
+
+  private async closeEntries(entries: readonly ServerEntry[]): Promise<void> {
+    const pending = entries
+      .flatMap((entry) => [entry.connecting, entry.probing])
+      .filter(
+        (promise): promise is Promise<DownstreamConnection> | Promise<ServerProbeResult> =>
+          promise !== undefined,
+      );
     await Promise.allSettled(pending);
 
-    const clients = Array.from(this.entries.values())
+    const clients = entries
       .map((entry) => entry.client)
       .filter((client): client is DownstreamConnection => client !== undefined);
     await Promise.allSettled(clients.map((client) => client.close()));
 
-    for (const entry of this.entries.values()) {
+    for (const entry of entries) {
       entry.client = undefined;
       entry.connecting = undefined;
       entry.probing = undefined;
       entry.tools = undefined;
       entry.error = undefined;
+      entry.health = undefined;
       entry.status = 'idle';
     }
   }
@@ -540,7 +592,7 @@ export class ServerManager {
     }
     return new AppError(
       error instanceof TimeoutError ? 'TIMEOUT' : 'SERVER_UNAVAILABLE',
-      `${prefix}: ${errorMessage(error)}`,
+      `${prefix}: ${sanitizeErrorMessage(errorMessage(error))}`,
       { server },
     );
   }
@@ -567,7 +619,6 @@ export class ServerManager {
   }
 
   private async ensureConnected(entry: ServerEntry): Promise<DownstreamConnection> {
-    this.assertOpen();
     if (entry.client) return entry.client;
     if (entry.connecting) return entry.connecting;
 
@@ -581,7 +632,7 @@ export class ServerManager {
         return client;
       } catch (error) {
         entry.status = error instanceof OAuthAuthorizationRequiredError ? 'auth' : 'error';
-        entry.error = errorMessage(error);
+        entry.error = sanitizeErrorMessage(errorMessage(error));
         throw error;
       }
     })();
@@ -594,13 +645,71 @@ export class ServerManager {
   }
 
   private async fail(entry: ServerEntry, error: unknown): Promise<void> {
+    const message = sanitizeErrorMessage(errorMessage(error));
+    entry.error = message;
+    const authUrl =
+      error instanceof OAuthAuthorizationRequiredError
+        ? error.authUrl
+        : error instanceof AppError &&
+            error.code === 'AUTH_REQUIRED' &&
+            typeof error.details?.authUrl === 'string'
+          ? error.details.authUrl
+          : undefined;
+    if (authUrl !== undefined) {
+      entry.status = 'auth';
+      entry.tools = undefined;
+      entry.health = {
+        healthy: false,
+        lastChecked: Date.now(),
+        authRequired: true,
+        authUrl,
+      };
+      return;
+    }
+
     entry.status = 'error';
-    entry.error = errorMessage(error);
     entry.tools = undefined;
+    entry.health = {
+      healthy: false,
+      lastChecked: Date.now(),
+      error: message,
+    };
     if (entry.client) {
       await entry.client.close().catch(() => undefined);
       entry.client = undefined;
     }
+  }
+
+  private markReady(entry: ServerEntry, latencyMs?: number): void {
+    entry.status = 'ready';
+    entry.error = undefined;
+    entry.health = {
+      healthy: true,
+      lastChecked: Date.now(),
+      ...(latencyMs === undefined ? {} : { latencyMs }),
+    };
+  }
+
+  private async runOperation<T>(operation: () => Promise<T>): Promise<T> {
+    this.assertOpen();
+    this.activeOperations += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeOperations -= 1;
+      if (this.activeOperations === 0) {
+        const waiters = this.operationWaiters;
+        this.operationWaiters = [];
+        for (const resolve of waiters) resolve();
+      }
+    }
+  }
+
+  private async waitForOperations(): Promise<void> {
+    if (this.activeOperations === 0) return;
+    await new Promise<void>((resolve) => {
+      this.operationWaiters.push(resolve);
+    });
   }
 }
 
@@ -611,8 +720,24 @@ function buildEntries(servers: ServerConfig[]): Map<string, ServerEntry> {
 }
 
 function targetOf(config: ServerConfig): string {
-  if (config.url !== undefined) return config.url;
-  return [config.command, ...config.args].filter(Boolean).join(' ');
+  if (config.url !== undefined) return redactUrlForDisplay(config.url);
+  return redactCommandForDisplay(
+    [config.command, ...config.args].filter((part): part is string => typeof part === 'string'),
+  );
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerialize(item)).join(',')}]`;
+  }
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
 }
 
 function isConnectionFailure(error: unknown): boolean {

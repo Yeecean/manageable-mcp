@@ -23,7 +23,7 @@ import type {
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const GROUP_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const ENV_REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
-const FILE_REFERENCE = /^\{file:(.*)\}$/;
+const FILE_REFERENCE = /\{file:([^{}]+)\}/g;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 5_000;
 const DEFAULT_HEALTH_CHECK_CACHE_MS = 60_000;
@@ -106,25 +106,42 @@ function stringRecord(value: unknown, field: string): Record<string, string> {
 }
 
 function expandValue(value: string, baseDir: string, field: string): string {
-  const fileMatch = FILE_REFERENCE.exec(value);
-  if (fileMatch) {
-    const rawPath = fileMatch[1];
-    if (!rawPath) invalid(`${field} 的文件引用为空`);
-    const filePath = path.isAbsolute(rawPath) ? rawPath : path.resolve(baseDir, rawPath);
-    try {
-      return fs.readFileSync(filePath, 'utf8').trim();
-    } catch (error) {
-      invalid(`${field} 无法读取 ${filePath}：${(error as Error).message}`);
-    }
-  }
+  const withFiles = value.replace(FILE_REFERENCE, (_, rawPath: string) =>
+    readSecretFile(rawPath, baseDir, field),
+  );
 
-  return value.replace(ENV_REFERENCE, (_, name: string) => {
+  return withFiles.replace(ENV_REFERENCE, (_, name: string) => {
     const resolved = process.env[name];
     if (resolved === undefined) {
       invalid(`${field} 引用了未定义的环境变量 ${name}`);
     }
     return resolved;
   });
+}
+
+function readSecretFile(rawPath: string | undefined, baseDir: string, field: string): string {
+  const trimmedPath = rawPath?.trim();
+  if (!trimmedPath) invalid(`${field} 的文件引用为空`);
+  const filePath = path.isAbsolute(trimmedPath)
+    ? trimmedPath
+    : path.resolve(baseDir, trimmedPath);
+  try {
+    return fs.readFileSync(filePath, 'utf8').trim();
+  } catch (error) {
+    invalid(`${field} 无法读取 ${filePath}：${(error as Error).message}`);
+  }
+}
+
+function expandedOptionalString(
+  value: unknown,
+  field: string,
+  baseDir: string,
+): string | undefined {
+  const raw = optionalString(value, field);
+  if (raw === undefined) return undefined;
+  const expanded = expandValue(raw, baseDir, field);
+  if (expanded.trim().length === 0) invalid(`${field} 展开后不能为空`);
+  return expanded;
 }
 
 function expandRecord(
@@ -191,15 +208,17 @@ function parseGlobalPermissions(raw: unknown): GlobalPermissions {
 function parseOAuth(raw: unknown, field: string, baseDir: string): OAuthConfig | undefined {
   if (raw === undefined) return undefined;
   if (!isRecord(raw)) invalid(`${field} 必须是对象`);
-  const clientId = optionalString(raw.clientId, `${field}.clientId`);
-  const clientSecret = raw.clientSecret === undefined
-    ? undefined
-    : optionalString(raw.clientSecret, `${field}.clientSecret`);
+  const clientId = expandedOptionalString(raw.clientId, `${field}.clientId`, baseDir);
+  const clientSecret = expandedOptionalString(
+    raw.clientSecret,
+    `${field}.clientSecret`,
+    baseDir,
+  );
   const callbackPort = optionalNonNegativeInteger(raw.callbackPort, `${field}.callbackPort`);
   if (callbackPort !== undefined && callbackPort > 65_535) {
     invalid(`${field}.callbackPort 必须 <= 65535`);
   }
-  const scope = optionalString(raw.scope, `${field}.scope`);
+  const scope = expandedOptionalString(raw.scope, `${field}.scope`, baseDir);
   const extraHeadersSource = stringRecord(raw.extraHeaders, `${field}.extraHeaders`);
   const extraHeaders = expandRecord(extraHeadersSource, baseDir, `${field}.extraHeaders`);
   return {
@@ -244,10 +263,10 @@ function parseHealthCheck(raw: unknown, field: string): HealthCheckConfig | unde
       : invalid(`${field}.method 必须是 'tools/list' 或 'ping'`);
   return {
     enabled: optionalBoolean(raw.enabled, `${field}.enabled`) ?? false,
-    timeoutMs: optionalPositiveInteger(raw.timeoutMs, `${field}.timeoutMs`)
+    timeoutMs: timerValue(raw.timeoutMs, `${field}.timeoutMs`)
       ?? DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
     method,
-    cacheDurationMs: optionalPositiveInteger(raw.cacheDurationMs, `${field}.cacheDurationMs`)
+    cacheDurationMs: timerValue(raw.cacheDurationMs, `${field}.cacheDurationMs`)
       ?? DEFAULT_HEALTH_CHECK_CACHE_MS,
   };
 }
@@ -391,11 +410,13 @@ function parseTransport(raw: unknown, baseDir: string): HttpTransportConfig {
   }
   if (!isRecord(raw)) invalid('transport 必须是对象');
 
-  const host = expandValue(optionalString(raw.host, 'transport.host') ?? '127.0.0.1', baseDir, 'transport.host');
+  const host = expandValue(optionalString(raw.host, 'transport.host') ?? '127.0.0.1', baseDir, 'transport.host').trim();
+  if (host.length === 0) invalid('transport.host 展开后不能为空');
   const port = optionalPositiveInteger(raw.port, 'transport.port') ?? 8080;
   if (port > 65_535) invalid('transport.port 必须 <= 65535');
   const rawPath = expandValue(optionalString(raw.path, 'transport.path') ?? '/mcp', baseDir, 'transport.path');
-  const mcpPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  let mcpPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  mcpPath = mcpPath.length > 1 ? mcpPath.replace(/\/+$/, '') : mcpPath;
   if (mcpPath.includes('?') || mcpPath.includes('#')) invalid('transport.path 必须是路径，不能包含查询串或片段');
   if (mcpPath === '/health') invalid("transport.path '/health' 是健康检查保留路径");
   if (mcpPath === '/admin' || mcpPath.startsWith('/admin/') || mcpPath === '/api/admin' || mcpPath.startsWith('/api/admin/')) {
@@ -404,7 +425,7 @@ function parseTransport(raw: unknown, baseDir: string): HttpTransportConfig {
 
   let authToken = optionalString(raw.authToken, 'transport.authToken');
   if (authToken !== undefined) {
-    authToken = expandValue(authToken, baseDir, 'transport.authToken');
+    authToken = expandValue(authToken, baseDir, 'transport.authToken').trim();
     if (authToken.length === 0) invalid('transport.authToken 展开后不能为空');
   }
 

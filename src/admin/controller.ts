@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { loadConfig } from '../config/load.js';
 import type { LoadedConfig } from '../config/types.js';
 import { AppError, errorMessage } from '../core/errors.js';
+import { redactCommandForDisplay, redactUrlForDisplay } from '../core/redaction.js';
 import type {
   ServerProbeResult,
   ServerHealth,
@@ -11,6 +12,7 @@ import type {
   ServerStatus,
   ServerSummary,
 } from '../mcp/manager.js';
+import { sanitizeErrorMessage } from '../oauth/sanitize.js';
 import {
   AdminConfigStore,
   AdminError,
@@ -340,7 +342,7 @@ export class AdminController {
     }
 
     try {
-      const tools = await this.manager.listTools(name);
+      const tools = await this.manager.listTools(name, true);
       sendJson(res, 200, {
         success: true,
         data: { authRequired: false, toolsCount: tools.length },
@@ -359,7 +361,7 @@ export class AdminController {
             502,
             `服务器 “${name}” 的静态 OAuth clientId 与回调地址不匹配，提供方拒绝了授权请求。` +
               '请删除该服务器的 oauth.clientId（保留 oauth: {}）让 manageable-mcp 动态注册，' +
-              '或把该 client 注册的回调地址改为 http://localhost:8947/callback。',
+              '或把该 client 注册的回调地址改为 http://127.0.0.1:8947/callback。',
           );
         }
         sendJson(res, 200, {
@@ -479,6 +481,10 @@ export class AdminController {
         }
         timeoutMs = Math.min(Math.max(Math.trunc(record.timeoutMs), MIN_PROBE_TIMEOUT_MS), MAX_PROBE_TIMEOUT_MS);
       }
+    }
+
+    if (onlyUnknown && requested !== undefined) {
+      throw new AdminError(400, '字段 "onlyUnknown" 不能与 "names" 同时使用');
     }
 
     const summaries = this.manager.listServers();
@@ -633,7 +639,11 @@ function detectAuthType(
   }
 
   const oauth = isRecord(raw.oauth) ? raw.oauth : undefined;
-  if (oauth !== undefined || summary?.authRequired === true) {
+  if (
+    oauth !== undefined ||
+    summary?.authRequired === true ||
+    summary?.status === 'auth'
+  ) {
     const staticClient = oauth !== undefined &&
       typeof oauth.clientId === 'string' &&
       oauth.clientId.length > 0;
@@ -646,11 +656,11 @@ function detectAuthType(
   }
 
   const headerNames = isRecord(raw.headers) ? Object.keys(raw.headers) : [];
-  if (headerNames.length > 0) {
-    const authHeaders = headerNames.filter((name) => AUTH_HEADER_PATTERN.test(name));
+  const authHeaders = headerNames.filter((name) => AUTH_HEADER_PATTERN.test(name));
+  if (authHeaders.length > 0) {
     return {
       type: 'api-key',
-      detail: `静态 Header：${(authHeaders.length > 0 ? authHeaders : headerNames).join(', ')}`,
+      detail: `静态 Header：${authHeaders.join(', ')}`,
     };
   }
 
@@ -674,15 +684,15 @@ function detectAuthType(
 
 function targetOf(raw: Record<string, unknown>, type: 'local' | 'remote'): string {
   if (type === 'remote') {
-    return typeof raw.url === 'string' ? raw.url : '';
+    return typeof raw.url === 'string' ? redactUrlForDisplay(raw.url) : '';
   }
   const command = Array.isArray(raw.command)
-    ? raw.command.filter((part): part is string => typeof part === 'string').join(' ')
-    : (typeof raw.command === 'string' ? raw.command : '');
+    ? raw.command.filter((part): part is string => typeof part === 'string')
+    : (typeof raw.command === 'string' ? [raw.command] : []);
   const args = Array.isArray(raw.args)
     ? raw.args.filter((part): part is string => typeof part === 'string')
     : [];
-  return [command, ...args].filter(Boolean).join(' ');
+  return redactCommandForDisplay([...command, ...args]);
 }
 
 function computeStats(servers: AdminServerView[]): AdminStats {
@@ -782,15 +792,17 @@ function requireMethod(
 
 function hasValidBearer(req: http.IncomingMessage, expected: string): boolean {
   const header = req.headers.authorization;
-  if (typeof header !== 'string' || !header.startsWith('Bearer ')) return false;
-  const provided = Buffer.from(header.slice('Bearer '.length), 'utf8');
+  if (typeof header !== 'string') return false;
+  const match = /^Bearer[ \t]+(.+)$/i.exec(header);
+  if (match === null) return false;
+  const provided = Buffer.from(match[1] as string, 'utf8');
   const target = Buffer.from(expected, 'utf8');
   return provided.length === target.length && timingSafeEqual(provided, target);
 }
 
 function isLoopbackRequest(req: http.IncomingMessage): boolean {
   const address = req.socket?.remoteAddress;
-  if (!address) return true;
+  if (!address) return false;
   const value = address.toLowerCase();
   return (
     value === '::1' ||
@@ -827,10 +839,13 @@ function sendAdminError(res: http.ServerResponse, error: unknown): void {
     if (error.status === 401) res.setHeader('WWW-Authenticate', 'Bearer');
     sendJson(res, error.status, {
       success: false,
-      error: { message: localizeAdminMessage(error.message) },
+      error: { message: localizeAdminMessage(sanitizeErrorMessage(error.message)) },
     });
     return;
   }
+  process.stderr.write(
+    `manageable-mcp 管理 API 内部错误：${sanitizeErrorMessage(errorMessage(error))}\n`,
+  );
   sendJson(res, 500, {
     success: false,
     error: { message: '服务器内部错误' },

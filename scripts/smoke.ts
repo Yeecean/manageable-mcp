@@ -33,7 +33,7 @@ try {
     name: 'invoke_command',
     arguments: {
       server: 'echo',
-      command: 'echo',
+      command_name: 'echo',
       parameters: { text: 'hello from smoke' },
     },
   });
@@ -46,7 +46,7 @@ try {
     name: 'invoke_command',
     arguments: {
       server: 'echo',
-      command: 'add',
+      command_name: 'add',
       parameters: { a: 2, b: 3 },
     },
   });

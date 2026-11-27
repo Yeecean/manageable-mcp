@@ -119,5 +119,15 @@ describe('extended config', () => {
         base,
       ),
     ).toThrow(/保留前缀 \/admin/);
+
+    expect(() =>
+      parseConfig(
+        {
+          servers: [{ name: 'local', description: 'Local', command: 'node' }],
+          transport: { path: '/api/admin/' },
+        },
+        base,
+      ),
+    ).toThrow(/保留前缀 \/admin/);
   });
 });

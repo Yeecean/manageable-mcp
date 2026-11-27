@@ -16,6 +16,7 @@ src/
     errors.ts              AppError codes and OAuth authorization signal
     logger.ts              stderr logger
     timeout.ts             timeout helper
+    redaction.ts           URL/command display redaction
   mcp/
     downstream.ts          SDK client plus opt-in OAuth transport
     manager.ts             lazy connections, caches, prompts, health, reload
@@ -57,10 +58,11 @@ src/
 7. Prompt 只从选择启用的服务器聚合，并使用可逆编解码器命名。只有当作用域内至少
    有一台选择启用的服务器时，才会声明 `prompts` 能力。
 8. 健康探测仅在启用且工具活动发生后运行。探测会连接下游并调用 `tools/list`，
-   同时回填工具数量和健康状态；显式管理探测还会返回完整工具摘要。
-9. `closeAll()` 会阻止新连接、等待正在进行的连接、关闭所有客户端，然后清空缓存。
-   配置重载在替换 manager map 之前，也会先按同样方式停止接收新连接并等待现有连接
-   结束。
+   同时回填工具数量和健康状态。单服务器管理探测返回完整工具摘要；批量探测只返回
+   数量、耗时、授权/错误状态，避免一次响应携带所有工具。
+9. `closeAll()` 会阻止新连接、等待在途的发现/调用/prompt 操作、关闭所有客户端，
+   然后清空缓存。配置重载会先关闭并重建配置发生变化的服务器，未变化的服务器复用
+   原有连接、工具数和健康状态；重载期间暂停接受新的 manager 操作。
 
 ## HTTP 路由
 
@@ -75,6 +77,9 @@ POST /mcp/<group>             group-scoped MCP endpoint
 HTTP transport 是无状态的：每个请求都会获得新的 `Server` 和 Streamable HTTP
 transport，而所有请求共享同一个 `ServerManager`。
 
+HTTP 只允许绑定 loopback，除非同时配置 bearer token；空主机名和
+`/health`、`/admin`、`/api/admin` 及其子路径会在配置层和启动层被拒绝。
+
 ## OAuth 流程
 
 每个远程服务器都会获得一个 OAuth provider；回调监听器只在确实需要授权时启动，
@@ -86,21 +91,28 @@ PKCE 授权，并在 `401`/`403` 时刷新 token。共享的 loopback 回调服�
 ## 结果模型
 
 - 成功的下游结果会原样返回：保留 `content`、`isError`、`structuredContent` 和
-  `_meta`。
+  `_meta`。下游 `isError: true` 的结果会保留结构，但对文本、结构化内容和
+  `_meta` 递归脱敏。
 - 代理侧失败返回 `isError: true`，并附带
   `_meta.manageableMcpProxyError = { code, message, ...details }`。
+- 下游 `tools/list` 或 `prompts/list` 超过 100 页仍返回游标时抛出
+  `PAGINATION_LIMIT`，不会把部分结果当作完整列表。
 - 不存在旧版元数据别名。
 
 ## 安全模型
 
 - stdio 以当前操作系统用户的信任级别运行。
 - HTTP 默认绑定 loopback。
+- 非 loopback 绑定必须配置 bearer token；管理 API 在无法确认回环地址时 fail closed。
 - HTTP 在路由前检查 `Host` 和 `Origin`，包括 `/health`。
 - Bearer token 使用常量时间比较。
 - 请求体默认限制为 4 MiB。
 - 管理 API 使用相同的 bearer token 或仅允许 loopback 访问；HTML 外壳不包含任何
   服务器数据。
-- OAuth token 和回调 code 会从日志和错误页面中脱敏。
+- 下游 HTTP 错误只保留状态码；错误文本、工具错误结果、OAuth token 和回调 code
+  会统一脱敏。
+- 管理面板展示的 URL/命令目标会移除 userinfo、敏感查询值和敏感参数值。
+- Windows 关闭 stdio 下游时用 `taskkill /T` 兜底清理 `.cmd`/`.bat` 进程树。
 - 在平台支持时，一次性端点文件会以仅所有者可访问的权限写入。
 - 配置写入会经过校验、临时文件、fsync 和原子重命名。
 

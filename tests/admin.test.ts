@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminController } from '../src/admin/controller.js';
 import { AdminConfigStore } from '../src/admin/store.js';
 import { loadConfig } from '../src/config/load.js';
@@ -148,6 +148,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   if (adapter) {
     adapter.closeAllConnections();
     await new Promise<void>((resolve) => {
@@ -495,6 +496,55 @@ describe('AdminController', () => {
     const echo = overviewBody.data.servers.find((server: any) => server.name === 'echo');
     expect(echo.health).toMatchObject({ healthy: true });
   });
+
+  it('forces a live auth check and accepts a case-insensitive bearer scheme', async () => {
+    const base = await startAdapter(adminToken);
+    const spy = vi.spyOn(manager, 'listTools').mockResolvedValue([
+      {
+        name: 'remote-tool',
+        inputSchema: { type: 'object' },
+      },
+    ]);
+
+    const response = await fetch(base + '/api/admin/servers/other/auth', {
+      method: 'POST',
+      headers: { Authorization: `bearer ${adminToken}` },
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      data: { authRequired: false, toolsCount: 1 },
+    });
+    expect(spy).toHaveBeenCalledWith('other', true);
+  });
+
+  it('fails closed when the request socket has no remote address', async () => {
+    await startAdapter();
+    const request = {
+      method: 'GET',
+      url: '/api/admin',
+      headers: {},
+    } as unknown as http.IncomingMessage;
+    const response = createMockResponse();
+
+    const handled = await controller.handle(request, response, new URL('http://localhost/api/admin'));
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('logs unknown admin failures to stderr without leaking secrets', async () => {
+    const base = await startAdapter(adminToken);
+    vi.spyOn(manager, 'listServers').mockImplementation(() => {
+      throw new Error('internal failure token=super-secret');
+    });
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const response = await fetch(base + '/api/admin', { headers: authHeaders() });
+    expect(response.status).toBe(500);
+    const output = stderr.mock.calls.map((call) => String(call[0])).join('');
+    expect(output).toContain('管理 API 内部错误');
+    expect(output).not.toContain('super-secret');
+  });
 });
 
 describe('Admin server inspection', () => {
@@ -542,6 +592,90 @@ describe('Admin server inspection', () => {
     expect((byName.get('keyed') as any).authDetail).toContain('X-Api-Key');
     expect(byName.get('plain')).toMatchObject({ type: 'remote', authType: 'unknown' });
     expect(body.data.stats).toMatchObject({ total: 3, enabled: 3, disabled: 0 });
+  });
+
+  it('does not treat non-auth headers as API keys and infers OAuth from auth status', async () => {
+    writeConfig({
+      servers: [
+        {
+          name: 'plain',
+          description: 'Non-auth header',
+          url: 'https://plain.example.com/mcp',
+          headers: { Accept: 'application/json' },
+        },
+        {
+          name: 'needs-auth',
+          description: 'Auth state without static config',
+          url: 'https://auth.example.com/mcp',
+        },
+      ],
+    });
+    const loaded = loadConfig(configPath);
+    await manager.reconfigure(loaded.config.servers, {
+      groups: loaded.config.groups,
+      permissions: loaded.config.permissions,
+      health: loaded.config.health,
+      configPath,
+    });
+    const entry = (manager as unknown as {
+      entries: Map<string, { status: string }>;
+    }).entries.get('needs-auth');
+    expect(entry).toBeDefined();
+    entry!.status = 'auth';
+
+    const base = await startAdapter(adminToken);
+    const overview = await fetch(base + '/api/admin', { headers: authHeaders() });
+    const body = await overview.json() as any;
+    const byName = new Map(body.data.servers.map((server: any) => [server.name, server]));
+    expect(byName.get('plain')).toMatchObject({ authType: 'unknown' });
+    expect(byName.get('needs-auth')).toMatchObject({
+      status: 'auth',
+      authType: 'oauth',
+      authRequired: true,
+    });
+  });
+
+  it('redacts targets when falling back to raw config values', async () => {
+    writeConfig({
+      servers: [
+        {
+          name: 'remote',
+          description: 'Remote with credentials',
+          url: 'https://url-user:url-pass-1@example.com/mcp?token=query-secret&region=cn',
+        },
+        {
+          name: 'local',
+          description: 'Local with a command secret',
+          command: 'node',
+          args: ['server.mjs', '--token', 'command-secret'],
+        },
+      ],
+    });
+    const fakeManager = {
+      getConfigPath: () => configPath,
+      listServers: () => [],
+      isHealthForcedOn: () => false,
+    } as unknown as ServerManager;
+    const localController = new AdminController(fakeManager, {
+      configPath,
+      mcpPath: '/mcp',
+      authToken: adminToken,
+    });
+    const request = {
+      method: 'GET',
+      url: '/api/admin',
+      headers: { authorization: `Bearer ${adminToken}` },
+      socket: { remoteAddress: '127.0.0.1' },
+    } as unknown as http.IncomingMessage;
+    const response = createMockResponse();
+
+    await localController.handle(request, response, new URL('http://localhost/api/admin'));
+    const body = response.json() as any;
+    const byName = new Map(body.data.servers.map((server: any) => [server.name, server]));
+    expect((byName.get('remote') as any).target).toBe(
+      'https://example.com/mcp?token=***&region=cn',
+    );
+    expect((byName.get('local') as any).target).toBe('node server.mjs --token ***');
   });
 
   it('probes one server and returns the tool list with a count', async () => {
@@ -652,6 +786,17 @@ describe('Admin server inspection', () => {
       body: JSON.stringify({ concurrency: 'many' }),
     });
     expect(badConcurrency.status).toBe(400);
+
+    const conflictingFilters = await fetch(base + '/api/admin/probe', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ names: ['echo'], onlyUnknown: true }),
+    });
+    expect(conflictingFilters.status).toBe(400);
+    await expect(conflictingFilters.json()).resolves.toMatchObject({
+      success: false,
+      error: { message: expect.stringContaining('不能与 "names" 同时使用') },
+    });
 
     const unknown = await fetch(base + '/api/admin/servers/missing/probe', {
       method: 'POST',

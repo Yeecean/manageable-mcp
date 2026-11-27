@@ -38,7 +38,7 @@ try {
       name: 'invoke_command',
       arguments: {
         server: 'echo',
-        command: 'echo',
+        command_name: 'echo',
         parameters: { text: 'hello over http' },
       },
     },

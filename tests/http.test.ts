@@ -101,7 +101,7 @@ describe('HTTP transport', () => {
           name: 'invoke_command',
           arguments: {
             server: 'echo',
-            command: 'echo',
+            command_name: 'echo',
             parameters: { text: 'http-test' },
           },
         },

@@ -10,7 +10,8 @@ prompt 转发、策略规则、健康探测、OAuth、管理面板和一次性�
 - 不包含包发布、Docker、Homebrew、Rust 或 Python 打包链路；
 - 不提供任何形式的兼容层。
 
-当前版本：`0.2.0`。
+包版本：`0.2.0`。路线图 0.1–0.6 已完成，0.7 是本轮本地保真复查；
+路线图编号不是 npm 发布版本（本项目不发布）。
 
 ## 环境要求
 
@@ -162,6 +163,12 @@ token。随后重试调用，或使用 `manageable-mcp auth <server> --wait`。
 `tools/list`，同时缓存工具数量和健康状态，并在超过 `idleTimeoutMs` 后休眠。
 `/health` 只报告已缓存状态，不会触发探测。
 
+每服务器的 `healthCheck` 字段会被解析和校验；当前后台监控仍统一使用全局
+`health.timeoutMs`，单服务器/批量管理探测则由请求的 `timeoutMs` 控制。
+
+管理面板首次打开时会对“已启用且工具数未知”的服务器自动发起一次探测。该探测会
+真实连接下游服务器，服务器较多时可能需要几十秒；页面会逐张卡片显示进度和结果。
+
 ## 运行 HTTP 守护进程
 
 ```powershell
@@ -176,20 +183,23 @@ node dist/index.js serve --transport http --port 8080
 - 管理面板：`http://127.0.0.1:8080/admin`
 
 使用 `--ui` 启用管理面板，使用 `--cli` 发布一次性端点，使用 `--auth-token`
-要求 bearer token。一次性端点仅绑定 loopback。在非 loopback 地址上绑定并启用
-`--ui` 时必须提供 token。
+要求 bearer token。一次性端点仅绑定 loopback。任何非 loopback 地址都必须配置
+token，否则拒绝启动；空主机名、`/health/` 以及 `/admin`、`/api/admin` 保留路径
+也会被拒绝。
 
 ## 四个元工具
 
 | 工具 | 用途 |
 |---|---|
-| `list_servers` | 列出可见服务器及缓存状态；不会建立连接。 |
-| `list_commands` | 列出某一服务器的工具名称和简短说明。 |
-| `describe_commands` | 返回所选工具的完整输入 schema。 |
-| `invoke_command` | 调用一个下游工具。 |
+| `list_servers` | 列出可见服务器及缓存状态；支持 `filter` 按名称、描述或标签过滤，不会建立连接。 |
+| `list_commands` | 用 `server` 查询单个服务器，或用 `servers` 批量查询；只返回名称和简短说明。 |
+| `describe_commands` | 用 `command_names` 返回所选工具的完整 schema；支持 `refresh`。 |
+| `invoke_command` | 用 `command_name` 调用下游工具；下游输入必须放在 `parameters` 中。 |
 
 已启用的服务器目录会嵌入 `list_servers` 的描述中。完整 schema 仍保持懒加载，
-直到调用 `describe_commands`。
+直到调用 `describe_commands`。`list_servers` 同时保留旧契约字段
+`tools_count`、`examples`、`tags` 和 `auth_required`，并返回
+`{ servers, version }`；过滤会先应用当前 group scope。
 
 ## 一次性 CLI
 
@@ -234,7 +244,8 @@ Attach 模式从不读取 `servers.json`，也从不启动下游服务器。它�
 - `POST /api/admin/reload` — 从磁盘重载。
 - `POST /api/admin/probe` — 批量检测工具；支持 `names`、`onlyUnknown`、
   `concurrency` 和 `timeoutMs`，返回 `results` 与
-  `summary: { total, ok, authRequired, failed }`。
+  `summary: { total, ok, authRequired, failed }`。`names` 与 `onlyUnknown`
+  不能同时使用；批量检测不返回完整工具摘要，单服务器探测才返回。
 
 API 要求提供已配置的 bearer token。未配置 token 时，仅接受 loopback 客户端。
 配置变更会使用常规解析器校验并以原子方式写入；未知的原始字段会保留。
@@ -242,6 +253,10 @@ API 要求提供已配置的 bearer token。未配置 token 时，仅接受 loop
 管理面板会显示每个服务器的类型、目标、标签、工具数量、健康状态和授权类型
 （`OAuth`、`API Key`、`本地`、`自动检测`），并支持状态筛选、复制 MCP 端点、
 单服务器/批量工具检测、工具列表弹窗和 OAuth 授权弹窗。
+超长错误、保存失败和 OAuth 诊断会折叠为可展开详情，默认只显示一行摘要，
+展开后可在限高区域内滚动查看完整文本。
+卡片上的 URL 和命令目标会脱敏显示：URL userinfo 被移除，敏感查询参数和
+`--token`/`--api-key` 等命令行参数的值替换为 `***`；完整值仍只保存在本地配置中。
 
 ## 安全模型
 
@@ -249,6 +264,9 @@ API 要求提供已配置的 bearer token。未配置 token 时，仅接受 loop
 - HTTP 默认绑定 `127.0.0.1`，并校验 `Host`/`Origin`。
 - 请求体默认限制为 4 MiB。
 - Bearer token 使用常量时间比较。
+- 非 loopback 绑定必须提供 token；管理 API 在无法确认回环地址时拒绝访问。
+- 下游错误、工具错误结果和 OAuth 诊断会统一脱敏；下游 HTTP 错误只保留状态码。
+- Windows 关闭 stdio 下游时使用 `taskkill /T` 清理 `.cmd`/`.bat` 包装器产生的进程树。
 - 管理/配置/token 文件均为本地文件；在平台支持时，CLI 端点使用仅所有者可访问的
   权限。
 - OAuth token 和回调 code 会从诊断信息中脱敏。

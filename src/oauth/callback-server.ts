@@ -76,9 +76,13 @@ export function registerPendingOAuthFlow(options: RegisterOAuthFlowOptions): voi
   });
 }
 
-export function takePendingOAuthFlow(state: string): PendingOAuthFlow | undefined {
+export function peekPendingOAuthFlow(state: string): PendingOAuthFlow | undefined {
   prunePendingFlows();
-  const flow = pendingFlows.get(state);
+  return pendingFlows.get(state);
+}
+
+export function takePendingOAuthFlow(state: string): PendingOAuthFlow | undefined {
+  const flow = peekPendingOAuthFlow(state);
   if (flow === undefined) return undefined;
   pendingFlows.delete(state);
   return flow;
@@ -264,8 +268,8 @@ async function handleCallback(
   }
 
   const state = requestUrl.searchParams.get('state') ?? '';
-  const flow = takePendingOAuthFlow(state);
-  if (flow === undefined) {
+  const pendingFlow = peekPendingOAuthFlow(state);
+  if (pendingFlow === undefined) {
     logger.warn('Rejected OAuth callback with an invalid or expired state');
     sendHtml(
       response,
@@ -281,9 +285,9 @@ async function handleCallback(
     return;
   }
 
-  if (flow.callbackPort !== localPort) {
+  if (pendingFlow.callbackPort !== localPort) {
     logger.warn('Rejected OAuth callback on the wrong local callback port', {
-      server: flow.serverName,
+      server: pendingFlow.serverName,
     });
     sendHtml(
       response,
@@ -292,6 +296,23 @@ async function handleCallback(
         title: '授权失败',
         heading: '回调地址不正确',
         message: '此授权响应被发送到了预期之外的本地回调端口。',
+        tone: 'error',
+      }),
+    );
+    return;
+  }
+
+  const flow = takePendingOAuthFlow(state);
+  if (flow === undefined) {
+    logger.warn('Rejected OAuth callback with an invalid or expired state');
+    sendHtml(
+      response,
+      400,
+      renderPage({
+        title: '授权失败',
+        heading: '授权请求无效或已过期',
+        message:
+          '此回调与任何待处理的 OAuth 请求都不匹配。请重新发起连接以获取新的授权 URL。',
         tone: 'error',
       }),
     );

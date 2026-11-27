@@ -613,7 +613,7 @@ export async function runOneShotCommand(
           'invoke_command',
           {
             server: command.server,
-            command: command.command,
+            command_name: command.command,
             parameters: callParameters ?? {},
           },
           command.timeoutMs,
@@ -633,7 +633,7 @@ export async function runOneShotCommand(
         const result = await callTool(
           client,
           'describe_commands',
-          { server: command.server, commands: command.commands },
+          { server: command.server, command_names: command.commands },
           command.timeoutMs,
         );
         return writeToolResult(command, result, write, writeError);

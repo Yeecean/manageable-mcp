@@ -133,17 +133,24 @@ function httpOptions(
   flags: Map<string, string>,
 ): HttpTransportConfig {
   const port = parsePort(flags.get('--port') ?? envValue('MANAGEABLE_MCP_PORT'), config.port);
-  const host = flags.get('--host') ?? envValue('MANAGEABLE_MCP_HOST') ?? config.host;
+  const host = (flags.get('--host') ?? envValue('MANAGEABLE_MCP_HOST') ?? config.host).trim();
+  if (host.length === 0) {
+    throw new AppError('INVALID_PARAMETERS', '--host 不能为空');
+  }
   const rawPath = flags.get('--path') ?? envValue('MANAGEABLE_MCP_PATH') ?? config.path;
-  const mcpPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  let mcpPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  mcpPath = mcpPath.length > 1 ? mcpPath.replace(/\/+$/, '') : mcpPath;
   if (mcpPath.includes('?') || mcpPath.includes('#')) {
     throw new AppError('INVALID_PARAMETERS', '--path 不能包含查询字符串或片段');
   }
-  if (mcpPath === '/health') {
+  if (mcpPath === '/health' || mcpPath.startsWith('/health/')) {
     throw new AppError('INVALID_PARAMETERS', "--path '/health' 是健康检查端点的保留路径");
   }
   if (mcpPath === '/admin' || mcpPath.startsWith('/admin/')) {
     throw new AppError('INVALID_PARAMETERS', "--path '/admin' 是管理面板的保留路径");
+  }
+  if (mcpPath === '/api/admin' || mcpPath.startsWith('/api/admin/')) {
+    throw new AppError('INVALID_PARAMETERS', "--path '/api/admin' 是管理 API 的保留路径");
   }
   const authToken = flags.get('--auth-token') ?? envValue('MANAGEABLE_MCP_AUTH_TOKEN') ?? config.authToken;
   const admin = flags.has('--ui') || config.admin;
@@ -165,7 +172,7 @@ function httpOptions(
     ...config,
     host,
     port,
-    path: mcpPath.length > 1 ? mcpPath.replace(/\/+$/, '') : mcpPath,
+    path: mcpPath,
     ...(authToken === undefined ? {} : { authToken }),
     admin,
     cli,

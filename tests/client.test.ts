@@ -455,7 +455,6 @@ describe('一次性命令往返', () => {
     expect(code).toBe(0);
     expect(io.errors).toEqual([]);
     const text = io.output.join('\n');
-    expect(text).toContain('"server": "echo"');
     expect(text).toContain('"name": "echo"');
     expect(text).toContain('"name": "add"');
   });
