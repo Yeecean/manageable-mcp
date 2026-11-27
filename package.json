@@ -1,0 +1,32 @@
+{
+  "name": "manageable-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-only MCP proxy with lazy tool discovery. Windows-first.",
+  "type": "module",
+  "bin": {
+    "manageable-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "tsx scripts/smoke.ts",
+    "smoke:http": "tsx scripts/smoke-http.ts",
+    "demo:http": "node dist/index.js serve --config servers.example.json --transport http"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.0"
+  }
+}

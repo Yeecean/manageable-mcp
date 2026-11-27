@@ -1,0 +1,16 @@
+{
+  "servers": [
+    {
+      "name": "echo",
+      "description": "Local demo server with echo, add, and fail tools.",
+      "command": "node",
+      "args": ["examples/echo-server.mjs"],
+      "cwd": "."
+    }
+  ],
+  "transport": {
+    "host": "127.0.0.1",
+    "port": 8080,
+    "path": "/mcp"
+  }
+}

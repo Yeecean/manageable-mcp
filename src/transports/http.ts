@@ -1,0 +1,197 @@
+import * as http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Logger } from '../core/logger.js';
+import { errorMessage } from '../core/errors.js';
+import type { HttpTransportConfig } from '../config/types.js';
+import { createProxyServer } from '../mcp/proxy-server.js';
+import type { ServerManager } from '../mcp/manager.js';
+import { PACKAGE_NAME, VERSION } from '../version.js';
+
+class HttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
+export interface RunningHttpServer {
+  url: string;
+  port: number;
+  close(): Promise<void>;
+}
+
+function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+  if (res.headersSent || res.writableEnded || res.destroyed) return;
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(payload),
+  });
+  res.end(payload);
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const value = hostname.toLowerCase();
+  return value === 'localhost' || value === '127.0.0.1' || value === '::1' || value === '[::1]';
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && isLoopbackHostname(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isRequestAllowed(req: http.IncomingMessage, options: HttpTransportConfig): boolean {
+  const origin = req.headers.origin;
+  if (origin !== undefined) {
+    if (!isLoopbackOrigin(origin) && !options.allowedOrigins.includes(origin)) return false;
+  }
+
+  const hostHeader = req.headers.host;
+  if (!hostHeader) return false;
+  const hostname = hostHeader.startsWith('[')
+    ? hostHeader.slice(1, hostHeader.indexOf(']'))
+    : hostHeader.split(':')[0];
+  if (!hostname) return false;
+  if (options.allowedHosts.length > 0) {
+    return options.allowedHosts.includes(hostHeader) || options.allowedHosts.includes(hostname);
+  }
+  return isLoopbackHostname(hostname) || hostname === options.host;
+}
+
+function isAuthorized(req: http.IncomingMessage, token: string | undefined): boolean {
+  if (token === undefined) return true;
+  const header = req.headers.authorization;
+  if (!header?.startsWith('Bearer ')) return false;
+  const provided = Buffer.from(header.slice('Bearer '.length));
+  const expected = Buffer.from(token);
+  return provided.length === expected.length && timingSafeEqual(provided, expected);
+}
+
+async function readJsonBody(req: http.IncomingMessage, limit: number): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > limit) throw new HttpError(413, `Request body exceeds ${limit} bytes`);
+    chunks.push(buffer);
+  }
+
+  if (chunks.length === 0) return undefined;
+  const text = Buffer.concat(chunks).toString('utf8').trim();
+  if (text.length === 0) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new HttpError(400, 'Request body must be valid JSON');
+  }
+}
+
+function pathnameOf(req: http.IncomingMessage): string {
+  try {
+    return new URL(req.url ?? '/', 'http://localhost').pathname;
+  } catch {
+    return '/';
+  }
+}
+
+export async function startHttpServer(
+  manager: ServerManager,
+  options: HttpTransportConfig,
+  logger: Logger,
+): Promise<RunningHttpServer> {
+  const server = http.createServer(async (req, res) => {
+    try {
+      const pathname = pathnameOf(req);
+
+      if (!isRequestAllowed(req, options)) {
+        throw new HttpError(403, 'Host or Origin is not allowed');
+      }
+      if (pathname === '/health') {
+        sendJson(res, 200, { status: 'ok', name: PACKAGE_NAME, version: VERSION });
+        return;
+      }
+      if (pathname !== options.path && pathname !== `${options.path}/`) {
+        throw new HttpError(404, 'Not found');
+      }
+      if (!isAuthorized(req, options.authToken)) {
+        res.setHeader('WWW-Authenticate', 'Bearer');
+        throw new HttpError(401, 'Unauthorized');
+      }
+      if (!['POST', 'GET', 'DELETE'].includes(req.method ?? '')) {
+        res.setHeader('Allow', 'POST, GET, DELETE');
+        throw new HttpError(405, 'Method not allowed');
+      }
+
+      const body = req.method === 'POST' ? await readJsonBody(req, options.maxBodyBytes) : undefined;
+      const mcpServer = createProxyServer(manager, logger);
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      let cleanedUp = false;
+      const cleanup = async (): Promise<void> => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        await transport.close().catch(() => undefined);
+        await mcpServer.close().catch(() => undefined);
+      };
+
+      res.once('finish', () => void cleanup());
+      res.once('close', () => void cleanup());
+
+      await mcpServer.connect(transport);
+      await transport.handleRequest(req, res, body);
+    } catch (error) {
+      if (error instanceof HttpError) {
+        sendJson(res, error.status, { error: error.message });
+        return;
+      }
+      logger.error('HTTP request failed', { error: errorMessage(error) });
+      sendJson(res, 500, { error: 'Internal server error' });
+    }
+  });
+
+  server.on('clientError', (error, socket) => {
+    logger.warn('HTTP client error', { error: error.message });
+    socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = (): void => {
+      server.off('error', onError);
+      resolve();
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(options.port, options.host);
+  });
+
+  const address = server.address();
+  const port = typeof address === 'object' && address !== null ? address.port : options.port;
+  const displayHost = options.host.includes(':') ? `[${options.host}]` : options.host;
+  const url = `http://${displayHost}:${port}${options.path}`;
+
+  logger.info('HTTP server listening', { url, health: `http://${displayHost}:${port}/health` });
+
+  return {
+    url,
+    port,
+    async close(): Promise<void> {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+      await manager.closeAll();
+    },
+  };
+}

@@ -1,0 +1,281 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { AppError } from '../core/errors.js';
+import { resolveConfigPath } from './paths.js';
+import type {
+  AppConfig,
+  GroupConfig,
+  HttpTransportConfig,
+  LoadedConfig,
+  ServerConfig,
+} from './types.js';
+
+const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const GROUP_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const ENV_REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+const FILE_REFERENCE = /^\{file:(.*)\}$/;
+const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024;
+const MAX_TIMER_MS = 2_147_483_647;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function invalid(message: string): never {
+  throw new AppError('CONFIG_INVALID', message);
+}
+
+function requireString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    invalid(`${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function optionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    invalid(`${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function optionalBoolean(value: unknown, field: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') invalid(`${field} must be a boolean`);
+  return value;
+}
+
+function optionalPositiveInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+    invalid(`${field} must be a positive integer`);
+  }
+  return value;
+}
+
+function stringArray(value: unknown, field: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    invalid(`${field} must be an array of strings`);
+  }
+  return value as string[];
+}
+
+function stringRecord(value: unknown, field: string): Record<string, string> {
+  if (value === undefined) return {};
+  if (!isRecord(value)) invalid(`${field} must be an object of string values`);
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== 'string') invalid(`${field}.${key} must be a string`);
+    result[key] = item;
+  }
+  return result;
+}
+
+function expandValue(value: string, baseDir: string, field: string): string {
+  const fileMatch = FILE_REFERENCE.exec(value);
+  if (fileMatch) {
+    const rawPath = fileMatch[1];
+    if (!rawPath) invalid(`${field} has an empty file reference`);
+    const filePath = path.isAbsolute(rawPath) ? rawPath : path.resolve(baseDir, rawPath);
+    try {
+      return fs.readFileSync(filePath, 'utf8').trim();
+    } catch (error) {
+      invalid(`${field} cannot read ${filePath}: ${(error as Error).message}`);
+    }
+  }
+
+  return value.replace(ENV_REFERENCE, (_, name: string) => {
+    const resolved = process.env[name];
+    if (resolved === undefined) {
+      invalid(`${field} references undefined environment variable ${name}`);
+    }
+    return resolved;
+  });
+}
+
+function expandRecord(
+  record: Record<string, string>,
+  baseDir: string,
+  field: string,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(record)) {
+    result[key] = expandValue(value, baseDir, `${field}.${key}`);
+  }
+  return result;
+}
+
+function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig {
+  if (!isRecord(raw)) invalid(`servers[${index}] must be an object`);
+
+  const name = requireString(raw.name, `servers[${index}].name`);
+  if (!SERVER_NAME.test(name)) {
+    invalid(`servers[${index}].name '${name}' must match ${SERVER_NAME.source}`);
+  }
+
+  const description = requireString(raw.description, `servers[${index}].description`);
+  const command = optionalString(raw.command, `servers[${index}].command`);
+  const url = optionalString(raw.url, `servers[${index}].url`);
+  if ((command === undefined) === (url === undefined)) {
+    invalid(`servers[${index}] must set exactly one of command or url`);
+  }
+
+  const rawCwd = optionalString(raw.cwd, `servers[${index}].cwd`);
+  const cwd = rawCwd === undefined ? undefined : path.resolve(baseDir, expandValue(rawCwd, baseDir, `servers[${index}].cwd`));
+  const args = stringArray(raw.args, `servers[${index}].args`).map((arg, argIndex) =>
+    expandValue(arg, baseDir, `servers[${index}].args[${argIndex}]`),
+  );
+  const env = expandRecord(stringRecord(raw.env, `servers[${index}].env`), baseDir, `servers[${index}].env`);
+  const headers = expandRecord(
+    stringRecord(raw.headers, `servers[${index}].headers`),
+    baseDir,
+    `servers[${index}].headers`,
+  );
+
+  const resolvedCommand = command === undefined ? undefined : expandValue(command, baseDir, `servers[${index}].command`);
+  const resolvedUrl = url === undefined ? undefined : expandValue(url, baseDir, `servers[${index}].url`);
+  if (resolvedUrl !== undefined) {
+    let parsed: URL;
+    try {
+      parsed = new URL(resolvedUrl);
+    } catch {
+      invalid(`servers[${index}].url is not a valid URL`);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      invalid(`servers[${index}].url must use http or https`);
+    }
+  }
+
+  const timeoutMs = optionalPositiveInteger(raw.timeoutMs, `servers[${index}].timeoutMs`) ?? DEFAULT_TIMEOUT_MS;
+  if (timeoutMs > MAX_TIMER_MS) {
+    invalid(`servers[${index}].timeoutMs must be <= ${MAX_TIMER_MS}`);
+  }
+
+  return {
+    name,
+    description,
+    enabled: optionalBoolean(raw.enabled, `servers[${index}].enabled`) ?? true,
+    ...(resolvedCommand === undefined ? {} : { command: resolvedCommand }),
+    args,
+    ...(cwd === undefined ? {} : { cwd }),
+    env,
+    ...(resolvedUrl === undefined ? {} : { url: resolvedUrl }),
+    headers,
+    timeoutMs,
+  };
+}
+
+function parseGroups(raw: unknown): Record<string, GroupConfig> {
+  if (raw === undefined) return {};
+  if (!isRecord(raw)) invalid('groups must be an object');
+
+  const result: Record<string, GroupConfig> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    if (!GROUP_NAME.test(name)) invalid(`group name '${name}' must match ${GROUP_NAME.source}`);
+    if (!isRecord(value)) invalid(`groups.${name} must be an object`);
+    const description = optionalString(value.description, `groups.${name}.description`);
+    const servers = stringArray(value.servers, `groups.${name}.servers`);
+    if (servers.length === 0) invalid(`groups.${name}.servers must not be empty`);
+    if (new Set(servers).size !== servers.length) invalid(`groups.${name}.servers contains duplicates`);
+    result[name] = {
+      ...(description === undefined ? {} : { description }),
+      servers,
+    };
+  }
+  return result;
+}
+
+function parseTransport(raw: unknown, baseDir: string): HttpTransportConfig {
+  if (raw === undefined) {
+    return {
+      host: '127.0.0.1',
+      port: 8080,
+      path: '/mcp',
+      allowedOrigins: [],
+      allowedHosts: [],
+      maxBodyBytes: DEFAULT_MAX_BODY_BYTES,
+    };
+  }
+  if (!isRecord(raw)) invalid('transport must be an object');
+
+  const host = expandValue(optionalString(raw.host, 'transport.host') ?? '127.0.0.1', baseDir, 'transport.host');
+  const port = optionalPositiveInteger(raw.port, 'transport.port') ?? 8080;
+  if (port > 65_535) invalid('transport.port must be <= 65535');
+  const rawPath = expandValue(optionalString(raw.path, 'transport.path') ?? '/mcp', baseDir, 'transport.path');
+  const mcpPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  if (mcpPath.includes('?') || mcpPath.includes('#')) invalid('transport.path must be a path without query or fragment');
+  if (mcpPath === '/health') invalid("transport.path '/health' is reserved for the health endpoint");
+
+  let authToken = optionalString(raw.authToken, 'transport.authToken');
+  if (authToken !== undefined) {
+    authToken = expandValue(authToken, baseDir, 'transport.authToken');
+    if (authToken.length === 0) invalid('transport.authToken must not be empty after expansion');
+  }
+
+  return {
+    host,
+    port,
+    path: mcpPath.length > 1 ? mcpPath.replace(/\/+$/, '') : mcpPath,
+    ...(authToken === undefined ? {} : { authToken }),
+    allowedOrigins: stringArray(raw.allowedOrigins, 'transport.allowedOrigins')
+      .map((origin, index) => expandValue(origin, baseDir, `transport.allowedOrigins[${index}]`)),
+    allowedHosts: stringArray(raw.allowedHosts, 'transport.allowedHosts')
+      .map((hostName, index) => expandValue(hostName, baseDir, `transport.allowedHosts[${index}]`)),
+    maxBodyBytes: optionalPositiveInteger(raw.maxBodyBytes, 'transport.maxBodyBytes') ?? DEFAULT_MAX_BODY_BYTES,
+  };
+}
+
+export function parseConfig(raw: unknown, sourcePath: string): AppConfig {
+  if (!isRecord(raw)) invalid('config root must be an object');
+  if (!Array.isArray(raw.servers)) invalid('servers must be an array');
+
+  const baseDir = path.dirname(path.resolve(sourcePath));
+  const servers = raw.servers.map((server, index) => parseServer(server, index, baseDir));
+  const seenNames = new Set<string>();
+  for (const server of servers) {
+    if (seenNames.has(server.name)) invalid(`duplicate server name '${server.name}'`);
+    seenNames.add(server.name);
+  }
+
+  const groups = parseGroups(raw.groups);
+  for (const [name, group] of Object.entries(groups)) {
+    for (const member of group.servers) {
+      if (!seenNames.has(member)) invalid(`groups.${name} references unknown server '${member}'`);
+    }
+  }
+
+  return {
+    servers,
+    groups,
+    transport: parseTransport(raw.transport, baseDir),
+  };
+}
+
+export function loadConfig(explicitPath?: string): LoadedConfig {
+  const sourcePath = resolveConfigPath(explicitPath);
+  let text: string;
+  try {
+    text = fs.readFileSync(sourcePath, 'utf8').replace(/^\uFEFF/, '');
+  } catch (error) {
+    throw new AppError(
+      'CONFIG_INVALID',
+      `Cannot read config ${sourcePath}. Copy servers.example.json to that path or pass --config. (${(error as Error).message})`,
+    );
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    throw new AppError('CONFIG_INVALID', `Config ${sourcePath} is not valid JSON: ${(error as Error).message}`);
+  }
+
+  return {
+    config: parseConfig(raw, sourcePath),
+    sourcePath,
+    baseDir: path.dirname(sourcePath),
+  };
+}
