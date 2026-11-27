@@ -20,6 +20,7 @@ const echo: ServerConfig = {
   env: {},
   headers: {},
   timeoutMs: 10_000,
+  forwardPrompts: false,
 };
 
 beforeAll(async () => {
@@ -34,6 +35,8 @@ beforeAll(async () => {
       allowedOrigins: [],
       allowedHosts: [],
       maxBodyBytes: 64 * 1024,
+      admin: false,
+      cli: false,
     },
     createLogger('error'),
   );
@@ -59,7 +62,11 @@ describe('HTTP transport', () => {
   it('exposes health without auth', async () => {
     const response = await fetch(server.url.replace(/\/mcp$/, '/health'));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ status: 'ok', name: 'manageable-mcp' });
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'ok',
+      name: 'manageable-mcp',
+      servers: [{ name: 'echo', enabled: true, status: 'idle' }],
+    });
   });
 
   it('rejects health requests from a non-loopback origin', async () => {
@@ -104,5 +111,53 @@ describe('HTTP transport', () => {
     expect(called.status).toBe(200);
     const callBody = await called.json() as any;
     expect(callBody.result.content[0]).toEqual({ type: 'text', text: 'http-test' });
+  });
+});
+
+describe('HTTP group routes', () => {
+  it('serves a scoped group route and rejects unknown groups', async () => {
+    const scopedManager = new ServerManager([echo], {
+      groups: { demo: { servers: ['echo'] } },
+    });
+    const scopedServer = await startHttpServer(
+      scopedManager,
+      {
+        host: '127.0.0.1',
+        port: 0,
+        path: '/mcp',
+        authToken,
+        allowedOrigins: [],
+        allowedHosts: [],
+        maxBodyBytes: 64 * 1024,
+        admin: false,
+        cli: false,
+      },
+      createLogger('error'),
+    );
+    try {
+      const listResponse = await fetch(`${scopedServer.url.replace(/\/mcp$/, '/mcp/demo')}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      expect(listResponse.status).toBe(200);
+
+      const unknown = await fetch(scopedServer.url.replace(/\/mcp$/, '/mcp/missing'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }),
+      });
+      expect(unknown.status).toBe(404);
+    } finally {
+      await scopedServer.close();
+    }
   });
 });

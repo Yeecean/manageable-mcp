@@ -40,6 +40,17 @@
 8. **Windows 细节**：路径要兼容空格；配置文件要容忍 UTF-8 BOM；子进程通过 SDK 的
    stdio transport 启动，不要在业务层手写 shell 字符串拼接。
 9. **秘密不落日志**：`${VAR}`、`{file:...}` 解析后的值不得写入日志、错误文本或测试快照。
+10. **分组与 prompts**：group 只暴露已启用成员；prompts 必须按
+    `<server>::<prompt>` 转义命名，并且只有 `forwardPrompts: true` 的服务器参与。
+11. **权限先于调用**：`invoke_command` 必须先按“服务器规则 → 全局规则 →
+    服务器默认 → 全局默认 → 隐式 allow”判定，拒绝时返回 `POLICY_BLOCKED`。
+12. **健康探测默认关闭**：启动、`tools/list`、`list_servers` 不得因健康探测连接下游；
+    只有显式启用健康检查且发生工具活动后才允许探测。
+13. **OAuth 自动但懒启动**：remote server 遇到 401/403 可以自动尝试 OAuth；
+    `oauth` 块仅覆盖 client、回调端口、scope、header 等默认值。回调监听器不得在
+    普通启动时抢占端口。token、client info、verifier 写入应用状态目录，日志和错误必须脱敏。
+14. **管理面板**：`/admin` 和 `/api/admin` 只由 `AdminController` 处理；无 token
+    时只允许 loopback，写配置必须校验后原子替换。
 
 ## 3. 代码风格
 
@@ -62,6 +73,9 @@ src/config/       配置模型、平台路径、解析与校验
 src/core/         AppError、logger、timeout 等无业务依赖的基础设施
 src/mcp/          下游 client、ServerManager、四个元工具、MCP server 工厂
 src/transports/   stdio 与 Streamable HTTP 传输
+src/admin/        管理面板、管理 API、原始配置原子写回
+src/client/       一次性 CLI 与 stdio-to-HTTP attach
+src/oauth/        OAuth provider、回调服务器与凭证存储
 tests/            Vitest 测试与 fixture
 scripts/          smoke 等本地验证脚本
 examples/         可直接运行的示例 MCP server
@@ -73,6 +87,9 @@ docs/             路线图与补充文档
 - `transports` 只负责协议接入，不直接实现工具逻辑。
 - `mcp/tools` 负责参数校验和结果整形，不直接 spawn 子进程。
 - `mcp/manager` 负责生命周期和缓存，不打印协议输出。
+- `mcp/tools` 负责权限判定与 group 可见性，不直接操作 HTTP。
+- `client` 和 `attach` 不读取 servers.json、不启动下游进程。
+- `oauth` 只负责认证，不实现工具转发。
 - `config` 不依赖 `mcp` 或 `transports`。
 
 ## 5. 测试规则
@@ -84,6 +101,8 @@ docs/             路线图与补充文档
 - HTTP 测试必须覆盖：health、无 token/wrong token、正确 token、Host/Origin 拒绝、
   四个元工具、一次真实 `invoke_command`。
 - Manager 测试必须覆盖：懒加载、工具缓存、unknown/disabled server、下游失败后的状态。
+- 功能测试必须覆盖：group 过滤、prompts 命名往返、权限拒绝、健康探测、
+  CLI/attach、admin 认证与 reload、OAuth PKCE/回调/持久化。
 - 不 mock 掉被测核心逻辑；只 mock 外部进程/网络边界。
 - 常用命令：
 
@@ -105,6 +124,7 @@ npm run build
 npm test
 npm run smoke
 npm run smoke:http
+npm run test:e2e
 git diff --check
 ```
 

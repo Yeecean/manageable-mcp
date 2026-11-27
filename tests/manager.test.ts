@@ -16,6 +16,7 @@ function echoConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
     env: {},
     headers: {},
     timeoutMs: 10_000,
+    forwardPrompts: false,
     ...overrides,
   };
 }

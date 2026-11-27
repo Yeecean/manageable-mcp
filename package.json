@@ -1,8 +1,8 @@
 {
   "name": "manageable-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Local-only MCP proxy with lazy tool discovery. Windows-first.",
+  "description": "Windows-first local MCP proxy with lazy discovery, groups, prompts, OAuth, policy, health, CLI, and admin.",
   "type": "module",
   "bin": {
     "manageable-mcp": "dist/index.js"
@@ -18,10 +18,11 @@
     "test:watch": "vitest",
     "smoke": "tsx scripts/smoke.ts",
     "smoke:http": "tsx scripts/smoke-http.ts",
+    "test:e2e": "node scripts/e2e-local.mjs",
     "demo:http": "node dist/index.js serve --config servers.example.json --transport http"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.3"
+    "@modelcontextprotocol/sdk": "^1.32.2"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

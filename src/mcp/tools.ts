@@ -1,6 +1,8 @@
 import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
 import { AppError, errorMessage } from '../core/errors.js';
 import type { ServerManager } from './manager.js';
+import { resolvePermission } from './permissions.js';
+import type { ProxyScope } from './proxy-scope.js';
 
 function textResult(value: unknown, structuredContent?: Record<string, unknown>): CallToolResult {
   return {
@@ -24,8 +26,8 @@ function errorResult(error: unknown): CallToolResult {
   };
 }
 
-function catalog(manager: ServerManager): string {
-  const servers = manager.listServers().filter((server) => server.enabled);
+function catalog(manager: ServerManager, scope?: ProxyScope): string {
+  const servers = manager.listServers(scope).filter((server) => server.enabled);
   if (servers.length === 0) return 'No enabled servers are configured.';
   return servers.map((server) => `- ${server.name}: ${server.description}`).join('\n');
 }
@@ -52,8 +54,8 @@ function optionalObject(value: unknown, field: string): Record<string, unknown> 
   return value as Record<string, unknown>;
 }
 
-export function getToolDefinitions(manager: ServerManager): Tool[] {
-  const serverCatalog = catalog(manager);
+export function getToolDefinitions(manager: ServerManager, scope?: ProxyScope): Tool[] {
+  const serverCatalog = catalog(manager, scope);
 
   return [
     {
@@ -131,6 +133,7 @@ export async function handleToolCall(
   name: string,
   rawArgs: unknown,
   signal?: AbortSignal,
+  scope?: ProxyScope,
 ): Promise<CallToolResult> {
   const args = rawArgs === undefined ? {} : rawArgs;
   if (typeof args !== 'object' || args === null || Array.isArray(args)) {
@@ -142,14 +145,16 @@ export async function handleToolCall(
     switch (name) {
       case 'list_servers':
         return textResult(
-          { servers: manager.listServers() },
-          { servers: manager.listServers() },
+          { servers: manager.listServers(scope) },
+          { servers: manager.listServers(scope) },
         );
 
       case 'list_commands': {
         const server = requireString(input.server, 'server');
+        assertVisible(server, scope);
         const refresh = input.refresh === true;
         const tools = await manager.listTools(server, refresh);
+        manager.touchActivity();
         const result = {
           server,
           tools: tools.map((tool) => ({
@@ -162,8 +167,10 @@ export async function handleToolCall(
 
       case 'describe_commands': {
         const server = requireString(input.server, 'server');
+        assertVisible(server, scope);
         const commands = requireStringArray(input.commands, 'commands');
         const tools = await manager.listTools(server);
+        manager.touchActivity();
         const byName = new Map(tools.map((tool) => [tool.name, tool]));
         const missing = commands.filter((command) => !byName.has(command));
         if (missing.length > 0) {
@@ -189,8 +196,24 @@ export async function handleToolCall(
 
       case 'invoke_command': {
         const server = requireString(input.server, 'server');
+        assertVisible(server, scope);
         const command = requireString(input.command, 'command');
         const parameters = optionalObject(input.parameters, 'parameters');
+        const config = manager.getServerConfig(server);
+        const decision = resolvePermission(
+          server,
+          command,
+          config?.permissions,
+          manager.getGlobalPermissions(),
+        );
+        if (decision.action === 'deny') {
+          throw new AppError(
+            'POLICY_BLOCKED',
+            decision.message ?? `Permission policy denied '${server}/${command}'.`,
+            { server, command, policySource: decision.source },
+          );
+        }
+        manager.touchActivity();
         return await manager.callTool(server, command, parameters, signal);
       }
 
@@ -199,5 +222,15 @@ export async function handleToolCall(
     }
   } catch (error) {
     return errorResult(error);
+  }
+}
+
+function assertVisible(server: string, scope?: ProxyScope): void {
+  if (scope !== undefined && !scope.allowedServers.has(server)) {
+    throw new AppError(
+      'SERVER_NOT_FOUND',
+      `Unknown server '${server}' in group '${scope.group}'.`,
+      { server, group: scope.group },
+    );
   }
 }

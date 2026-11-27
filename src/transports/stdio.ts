@@ -2,9 +2,14 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { Logger } from '../core/logger.js';
 import { createProxyServer } from '../mcp/proxy-server.js';
 import type { ServerManager } from '../mcp/manager.js';
+import type { ProxyScope } from '../mcp/proxy-scope.js';
 
-export async function startStdioServer(manager: ServerManager, logger: Logger): Promise<void> {
-  const server = createProxyServer(manager, logger);
+export async function startStdioServer(
+  manager: ServerManager,
+  logger: Logger,
+  scope?: ProxyScope,
+): Promise<void> {
+  const server = createProxyServer(manager, logger, scope);
   const transport = new StdioServerTransport();
   let stopping = false;
 

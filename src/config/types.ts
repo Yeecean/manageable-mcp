@@ -9,11 +9,51 @@ export interface ServerConfig {
   url?: string;
   headers: Record<string, string>;
   timeoutMs: number;
+  forwardPrompts: boolean;
+  permissions?: ServerPermissions;
+  oauth?: OAuthConfig;
 }
 
 export interface GroupConfig {
   description?: string;
   servers: string[];
+}
+
+export type PermissionAction = 'allow' | 'deny';
+
+export interface PermissionRule {
+  pattern: string;
+  action: PermissionAction;
+  message?: string;
+}
+
+export interface ServerPermissions {
+  default?: PermissionAction;
+  rules: PermissionRule[];
+}
+
+export interface GlobalPermissionRule extends PermissionRule {
+  server?: string;
+}
+
+export interface GlobalPermissions {
+  default?: PermissionAction;
+  rules: GlobalPermissionRule[];
+}
+
+export interface OAuthConfig {
+  clientId?: string;
+  clientSecret?: string;
+  callbackPort?: number;
+  scope?: string;
+  extraHeaders?: Record<string, string>;
+}
+
+export interface HealthConfig {
+  enabled: boolean;
+  intervalMs: number;
+  idleTimeoutMs: number;
+  timeoutMs: number;
 }
 
 export interface HttpTransportConfig {
@@ -24,12 +64,16 @@ export interface HttpTransportConfig {
   allowedOrigins: string[];
   allowedHosts: string[];
   maxBodyBytes: number;
+  admin: boolean;
+  cli: boolean;
 }
 
 export interface AppConfig {
   servers: ServerConfig[];
   groups: Record<string, GroupConfig>;
   transport: HttpTransportConfig;
+  permissions: GlobalPermissions;
+  health: HealthConfig;
 }
 
 export interface LoadedConfig {

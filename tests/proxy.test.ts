@@ -35,6 +35,7 @@ describe('proxy meta-tools', () => {
         env: {},
         headers: {},
         timeoutMs: 10_000,
+        forwardPrompts: false,
       },
     ]);
     proxy = createProxyServer(manager, silentLogger);

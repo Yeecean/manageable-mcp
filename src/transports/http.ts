@@ -1,11 +1,13 @@
 import * as http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { AdminController } from '../admin/controller.js';
 import type { Logger } from '../core/logger.js';
 import { errorMessage } from '../core/errors.js';
 import type { HttpTransportConfig } from '../config/types.js';
 import { createProxyServer } from '../mcp/proxy-server.js';
 import type { ServerManager } from '../mcp/manager.js';
+import { buildGroupScope, type ProxyScope } from '../mcp/proxy-scope.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 
 class HttpError extends Error {
@@ -100,11 +102,69 @@ function pathnameOf(req: http.IncomingMessage): string {
   }
 }
 
+function scopeForPath(
+  pathname: string,
+  options: HttpTransportConfig,
+  manager: ServerManager,
+): ProxyScope | undefined {
+  const base = options.path === '/' ? '/' : options.path;
+  if (pathname === base || pathname === `${base}/`) return undefined;
+  const prefix = base === '/' ? '/' : `${base}/`;
+  if (!pathname.startsWith(prefix)) throw new HttpError(404, 'Not found');
+
+  let group = pathname.slice(prefix.length);
+  if (group.endsWith('/')) group = group.slice(0, -1);
+  if (group.length === 0 || group.includes('/')) throw new HttpError(404, 'Not found');
+  try {
+    group = decodeURIComponent(group);
+  } catch {
+    throw new HttpError(404, 'Not found');
+  }
+  if (!/^[A-Za-z0-9._-]+$/.test(group)) throw new HttpError(404, 'Not found');
+  try {
+    return buildGroupScope(manager, group);
+  } catch {
+    throw new HttpError(404, 'Not found');
+  }
+}
+
+function healthPayload(manager: ServerManager): Record<string, unknown> {
+  return {
+    status: 'ok',
+    name: PACKAGE_NAME,
+    version: VERSION,
+    servers: manager.listServers().map((server) => ({
+      name: server.name,
+      enabled: server.enabled,
+      status: server.status,
+      ...(server.toolCount === undefined ? {} : { toolCount: server.toolCount }),
+      ...(server.health === undefined
+        ? {}
+        : {
+            health: {
+              healthy: server.health.healthy,
+              lastChecked: server.health.lastChecked,
+              ...(server.health.latencyMs === undefined ? {} : { latencyMs: server.health.latencyMs }),
+              ...(server.health.authRequired ? { authRequired: true } : {}),
+            },
+          }),
+    })),
+  };
+}
+
 export async function startHttpServer(
   manager: ServerManager,
   options: HttpTransportConfig,
   logger: Logger,
 ): Promise<RunningHttpServer> {
+  const adminController = options.admin
+    ? new AdminController(manager, {
+        configPath: manager.getConfigPath(),
+        mcpPath: options.path,
+        ...(options.authToken === undefined ? {} : { authToken: options.authToken }),
+        maxBodyBytes: options.maxBodyBytes,
+      })
+    : undefined;
   const server = http.createServer(async (req, res) => {
     try {
       const pathname = pathnameOf(req);
@@ -113,11 +173,12 @@ export async function startHttpServer(
         throw new HttpError(403, 'Host or Origin is not allowed');
       }
       if (pathname === '/health') {
-        sendJson(res, 200, { status: 'ok', name: PACKAGE_NAME, version: VERSION });
+        sendJson(res, 200, healthPayload(manager));
         return;
       }
-      if (pathname !== options.path && pathname !== `${options.path}/`) {
-        throw new HttpError(404, 'Not found');
+      if (adminController !== undefined) {
+        const adminUrl = new URL(req.url ?? '/', 'http://localhost');
+        if (await adminController.handle(req, res, adminUrl)) return;
       }
       if (!isAuthorized(req, options.authToken)) {
         res.setHeader('WWW-Authenticate', 'Bearer');
@@ -129,7 +190,8 @@ export async function startHttpServer(
       }
 
       const body = req.method === 'POST' ? await readJsonBody(req, options.maxBodyBytes) : undefined;
-      const mcpServer = createProxyServer(manager, logger);
+      const scope = scopeForPath(pathname, options, manager);
+      const mcpServer = createProxyServer(manager, logger, scope);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,

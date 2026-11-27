@@ -4,6 +4,9 @@ export type ErrorCode =
   | 'SERVER_DISABLED'
   | 'SERVER_UNAVAILABLE'
   | 'TOOL_NOT_FOUND'
+  | 'PROMPT_NOT_FOUND'
+  | 'POLICY_BLOCKED'
+  | 'AUTH_REQUIRED'
   | 'INVALID_PARAMETERS'
   | 'TOOL_EXECUTION_FAILED'
   | 'TIMEOUT'
@@ -29,4 +32,14 @@ export function errorMessage(error: unknown): string {
 export function errorName(error: unknown): string {
   if (error instanceof Error) return error.name;
   return typeof error;
+}
+
+export class OAuthAuthorizationRequiredError extends Error {
+  readonly authUrl: string;
+
+  constructor(authUrl: string) {
+    super('OAuth authorization is required');
+    this.name = 'OAuthAuthorizationRequiredError';
+    this.authUrl = authUrl;
+  }
 }

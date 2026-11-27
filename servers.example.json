@@ -8,9 +8,20 @@
       "cwd": "."
     }
   ],
+  "groups": {
+    "demo": {
+      "description": "Demo tools only",
+      "servers": ["echo"]
+    }
+  },
+  "health": {
+    "enabled": false
+  },
   "transport": {
     "host": "127.0.0.1",
     "port": 8080,
-    "path": "/mcp"
+    "path": "/mcp",
+    "admin": false,
+    "cli": false
   }
 }

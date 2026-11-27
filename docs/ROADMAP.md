@@ -13,34 +13,34 @@ upgrade. Old names are deliberately absent.
 - [x] examples, smoke scripts, unit and integration tests
 - [x] no legacy aliases, no publishing tooling
 
-## 0.2 — Client ergonomics
+## 0.2 — Client ergonomics (done)
 
-- [ ] server groups and `--group`
-- [ ] HTTP `/mcp/<group>` routes
-- [ ] one-shot `list`, `describe`, `call`, `auth` commands
-- [ ] `--attach` stdio-to-HTTP bridge
-- [ ] config reload on `SIGHUP` (POSIX) and explicit reload command
+- [x] server groups and `--group`
+- [x] HTTP `/mcp/<group>` routes
+- [x] one-shot `list-commands`, `describe`, `call`, `auth` commands
+- [x] `--attach` stdio-to-HTTP bridge
+- [x] `SIGHUP` reload (POSIX) and explicit admin reload
 
-## 0.3 — Management
+## 0.3 — Management (done)
 
-- [ ] admin HTTP API for server CRUD and reload
-- [ ] dependency-free admin UI at `/admin`
-- [ ] config write-back with atomic replace
-- [ ] health/status endpoint with cached tool counts
+- [x] admin HTTP API for server CRUD, probe, and reload
+- [x] dependency-free admin UI at `/admin`
+- [x] config write-back with atomic replace
+- [x] health/status endpoint with cached tool counts
 
-## 0.4 — Remote auth and policy
+## 0.4 — Remote auth and policy (done)
 
-- [ ] OAuth 2.0 + PKCE with dynamic client registration
-- [ ] token storage and refresh
-- [ ] per-server/global allow/deny policy rules
-- [ ] secret redaction in diagnostics
+- [x] OAuth 2.0 + PKCE with dynamic client registration
+- [x] token storage and refresh
+- [x] per-server/global allow/deny policy rules
+- [x] secret redaction in diagnostics
 
-## 0.5 — Fidelity and scale
+## 0.5 — Fidelity and scale (current)
 
-- [ ] prompts forwarding (opt-in per server)
-- [ ] paginated tool discovery edge cases
+- [x] prompts forwarding (opt-in per server)
+- [x] paginated tool and prompt discovery
 - [ ] unknown content block normalization
-- [ ] activity-driven health monitor
+- [x] activity-driven health monitor
 - [ ] concurrency and timeout stress tests
 
 ## Non-goals

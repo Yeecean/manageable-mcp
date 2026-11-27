@@ -4,10 +4,17 @@ import { AppError } from '../core/errors.js';
 import { resolveConfigPath } from './paths.js';
 import type {
   AppConfig,
+  GlobalPermissionRule,
+  GlobalPermissions,
   GroupConfig,
+  HealthConfig,
   HttpTransportConfig,
   LoadedConfig,
+  OAuthConfig,
+  PermissionAction,
+  PermissionRule,
   ServerConfig,
+  ServerPermissions,
 } from './types.js';
 
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -16,6 +23,9 @@ const ENV_REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const FILE_REFERENCE = /^\{file:(.*)\}$/;
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024;
+const DEFAULT_HEALTH_INTERVAL_MS = 30_000;
+const DEFAULT_HEALTH_IDLE_TIMEOUT_MS = 300_000;
+const DEFAULT_HEALTH_TIMEOUT_MS = 10_000;
 const MAX_TIMER_MS = 2_147_483_647;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,6 +63,22 @@ function optionalPositiveInteger(value: unknown, field: string): number | undefi
     invalid(`${field} must be a positive integer`);
   }
   return value;
+}
+
+function optionalNonNegativeInteger(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    invalid(`${field} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function timerValue(value: unknown, field: string): number | undefined {
+  const parsed = optionalPositiveInteger(value, field);
+  if (parsed !== undefined && parsed > MAX_TIMER_MS) {
+    invalid(`${field} must be <= ${MAX_TIMER_MS}`);
+  }
+  return parsed;
 }
 
 function stringArray(value: unknown, field: string): string[] {
@@ -108,6 +134,101 @@ function expandRecord(
   return result;
 }
 
+function parsePermissionAction(value: unknown, field: string): PermissionAction {
+  if (value === 'allow' || value === 'deny') return value;
+  invalid(`${field} must be 'allow' or 'deny'`);
+}
+
+function parsePermissionRules(value: unknown, field: string, global: boolean): Array<PermissionRule | GlobalPermissionRule> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) invalid(`${field} must be an array`);
+  return value.map((raw, index) => {
+    const ruleField = `${field}[${index}]`;
+    if (!isRecord(raw)) invalid(`${ruleField} must be an object`);
+    const pattern = requireString(raw.pattern, `${ruleField}.pattern`);
+    const action = parsePermissionAction(raw.action, `${ruleField}.action`);
+    const message = optionalString(raw.message, `${ruleField}.message`);
+    const rule: PermissionRule | GlobalPermissionRule = {
+      pattern,
+      action,
+      ...(message === undefined ? {} : { message }),
+    };
+    if (global) {
+      const server = optionalString(raw.server, `${ruleField}.server`);
+      if (server !== undefined) (rule as GlobalPermissionRule).server = server;
+    }
+    return rule;
+  });
+}
+
+function parseServerPermissions(raw: unknown, field: string): ServerPermissions | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) invalid(`${field} must be an object`);
+  const defaultAction = raw.default === undefined ? undefined : parsePermissionAction(raw.default, `${field}.default`);
+  return {
+    ...(defaultAction === undefined ? {} : { default: defaultAction }),
+    rules: parsePermissionRules(raw.rules, `${field}.rules`, false) as PermissionRule[],
+  };
+}
+
+function parseGlobalPermissions(raw: unknown): GlobalPermissions {
+  if (raw === undefined) return { rules: [] };
+  if (!isRecord(raw)) invalid('permissions must be an object');
+  const defaultAction = raw.default === undefined
+    ? undefined
+    : parsePermissionAction(raw.default, 'permissions.default');
+  return {
+    ...(defaultAction === undefined ? {} : { default: defaultAction }),
+    rules: parsePermissionRules(raw.rules, 'permissions.rules', true) as GlobalPermissionRule[],
+  };
+}
+
+function parseOAuth(raw: unknown, field: string, baseDir: string): OAuthConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) invalid(`${field} must be an object`);
+  const clientId = optionalString(raw.clientId, `${field}.clientId`);
+  const clientSecret = raw.clientSecret === undefined
+    ? undefined
+    : optionalString(raw.clientSecret, `${field}.clientSecret`);
+  const callbackPort = optionalNonNegativeInteger(raw.callbackPort, `${field}.callbackPort`);
+  if (callbackPort !== undefined && callbackPort > 65_535) {
+    invalid(`${field}.callbackPort must be <= 65535`);
+  }
+  const scope = optionalString(raw.scope, `${field}.scope`);
+  const extraHeadersSource = stringRecord(raw.extraHeaders, `${field}.extraHeaders`);
+  const extraHeaders = expandRecord(extraHeadersSource, baseDir, `${field}.extraHeaders`);
+  return {
+    ...(clientId === undefined ? {} : { clientId }),
+    ...(clientSecret === undefined ? {} : { clientSecret }),
+    ...(callbackPort === undefined ? {} : { callbackPort }),
+    ...(scope === undefined ? {} : { scope }),
+    ...(Object.keys(extraHeaders).length === 0 ? {} : { extraHeaders }),
+  };
+}
+
+function parseHealth(raw: unknown): HealthConfig {
+  if (raw === undefined) {
+    return {
+      enabled: false,
+      intervalMs: DEFAULT_HEALTH_INTERVAL_MS,
+      idleTimeoutMs: DEFAULT_HEALTH_IDLE_TIMEOUT_MS,
+      timeoutMs: DEFAULT_HEALTH_TIMEOUT_MS,
+    };
+  }
+  if (!isRecord(raw)) invalid('health must be an object');
+  const idleTimeoutMs = optionalNonNegativeInteger(raw.idleTimeoutMs, 'health.idleTimeoutMs')
+    ?? DEFAULT_HEALTH_IDLE_TIMEOUT_MS;
+  if (idleTimeoutMs > MAX_TIMER_MS) {
+    invalid(`health.idleTimeoutMs must be <= ${MAX_TIMER_MS}`);
+  }
+  return {
+    enabled: optionalBoolean(raw.enabled, 'health.enabled') ?? false,
+    intervalMs: timerValue(raw.intervalMs, 'health.intervalMs') ?? DEFAULT_HEALTH_INTERVAL_MS,
+    idleTimeoutMs,
+    timeoutMs: timerValue(raw.timeoutMs, 'health.timeoutMs') ?? DEFAULT_HEALTH_TIMEOUT_MS,
+  };
+}
+
 function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig {
   if (!isRecord(raw)) invalid(`servers[${index}] must be an object`);
 
@@ -154,6 +275,9 @@ function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig
     invalid(`servers[${index}].timeoutMs must be <= ${MAX_TIMER_MS}`);
   }
 
+  const permissions = parseServerPermissions(raw.permissions, `servers[${index}].permissions`);
+  const oauth = parseOAuth(raw.oauth, `servers[${index}].oauth`, baseDir);
+
   return {
     name,
     description,
@@ -165,6 +289,9 @@ function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig
     ...(resolvedUrl === undefined ? {} : { url: resolvedUrl }),
     headers,
     timeoutMs,
+    forwardPrompts: optionalBoolean(raw.forwardPrompts, `servers[${index}].forwardPrompts`) ?? false,
+    ...(permissions === undefined ? {} : { permissions }),
+    ...(oauth === undefined ? {} : { oauth }),
   };
 }
 
@@ -197,6 +324,8 @@ function parseTransport(raw: unknown, baseDir: string): HttpTransportConfig {
       allowedOrigins: [],
       allowedHosts: [],
       maxBodyBytes: DEFAULT_MAX_BODY_BYTES,
+      admin: false,
+      cli: false,
     };
   }
   if (!isRecord(raw)) invalid('transport must be an object');
@@ -208,6 +337,9 @@ function parseTransport(raw: unknown, baseDir: string): HttpTransportConfig {
   const mcpPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
   if (mcpPath.includes('?') || mcpPath.includes('#')) invalid('transport.path must be a path without query or fragment');
   if (mcpPath === '/health') invalid("transport.path '/health' is reserved for the health endpoint");
+  if (mcpPath === '/admin' || mcpPath.startsWith('/admin/') || mcpPath === '/api/admin' || mcpPath.startsWith('/api/admin/')) {
+    invalid('transport.path must not use the reserved /admin or /api/admin prefix');
+  }
 
   let authToken = optionalString(raw.authToken, 'transport.authToken');
   if (authToken !== undefined) {
@@ -225,6 +357,8 @@ function parseTransport(raw: unknown, baseDir: string): HttpTransportConfig {
     allowedHosts: stringArray(raw.allowedHosts, 'transport.allowedHosts')
       .map((hostName, index) => expandValue(hostName, baseDir, `transport.allowedHosts[${index}]`)),
     maxBodyBytes: optionalPositiveInteger(raw.maxBodyBytes, 'transport.maxBodyBytes') ?? DEFAULT_MAX_BODY_BYTES,
+    admin: optionalBoolean(raw.admin, 'transport.admin') ?? false,
+    cli: optionalBoolean(raw.cli, 'transport.cli') ?? false,
   };
 }
 
@@ -251,6 +385,8 @@ export function parseConfig(raw: unknown, sourcePath: string): AppConfig {
     servers,
     groups,
     transport: parseTransport(raw.transport, baseDir),
+    permissions: parseGlobalPermissions(raw.permissions),
+    health: parseHealth(raw.health),
   };
 }
 
