@@ -269,6 +269,15 @@ describe('AdminController', () => {
     expect(html).toContain('sessionStorage.setItem(TOKEN_KEY');
     expect(html).toContain('添加服务器');
     expect(html).toContain('重新加载配置');
+    expect(html).toContain('检测工具');
+    expect(html).toContain('已停用');
+    expect(html).toContain('data-filter="disabled"');
+    expect(html).toContain('id="copyEndpointBtn"');
+    expect(html).toContain('id="oauthDialog"');
+    expect(html).toContain('id="toolsDialog"');
+    expect(html).toContain('OAuth 授权');
+    expect(html).toContain('工具数未知');
+    expect(html).toContain('autoProbeUnknown');
     expect(html).toContain('服务器组');
     expect(html).toContain('空闲');
     expect(html).toContain('需要授权');
@@ -294,6 +303,7 @@ describe('AdminController', () => {
     expect(body.data.configFile).toBe(path.resolve(configPath));
     expect(body.data.mcpPath).toBe('/mcp');
     expect(body.data.servers).toHaveLength(2);
+    expect(body.data.stats).toMatchObject({ total: 2, enabled: 2, disabled: 0 });
     expect((body.data.groups.demo as any).servers).toEqual(['echo', 'other']);
     expect(JSON.stringify(body.data)).not.toContain('schemaNote');
 
@@ -477,11 +487,176 @@ describe('AdminController', () => {
     expect(probe.status).toBe(200);
     const probeBody = await probe.json() as any;
     expect(probeBody.data.results).toHaveLength(1);
-    expect(probeBody.data.results[0]).toMatchObject({ name: 'echo', healthy: true });
+    expect(probeBody.data.results[0]).toMatchObject({ name: 'echo', ok: true });
+    expect(probeBody.data.summary).toMatchObject({ total: 1, ok: 1 });
 
     const overview = await fetch(base + '/api/admin', { headers: authHeaders() });
     const overviewBody = await overview.json() as any;
     const echo = overviewBody.data.servers.find((server: any) => server.name === 'echo');
     expect(echo.health).toMatchObject({ healthy: true });
+  });
+});
+
+describe('Admin server inspection', () => {
+  it('exposes type, auth type, target, tags, and tool counts in the overview', async () => {
+    writeConfig({
+      servers: [
+        echoRaw({ tags: ['local', 'fixture'] }),
+        {
+          name: 'keyed',
+          description: 'Header-authenticated remote',
+          url: 'https://example.com/mcp',
+          headers: { 'X-Api-Key': 'literal' },
+          tags: ['remote'],
+        },
+        {
+          name: 'plain',
+          description: 'Unknown auth remote',
+          url: 'https://plain.example.com/mcp',
+        },
+      ],
+    });
+    const loaded = loadConfig(configPath);
+    await manager.reconfigure(loaded.config.servers, {
+      groups: loaded.config.groups,
+      permissions: loaded.config.permissions,
+      health: loaded.config.health,
+      configPath,
+    });
+
+    const base = await startAdapter(adminToken);
+    const overview = await fetch(base + '/api/admin', { headers: authHeaders() });
+    const body = await overview.json() as any;
+    const byName = new Map(body.data.servers.map((server: any) => [server.name, server]));
+
+    expect(byName.get('echo')).toMatchObject({
+      type: 'local',
+      authType: 'local',
+      toolsCount: null,
+      available: true,
+      loaded: false,
+      tags: ['local', 'fixture'],
+    });
+    expect((byName.get('echo') as any).target).toContain('echo-server.mjs');
+    expect(byName.get('keyed')).toMatchObject({ type: 'remote', authType: 'api-key' });
+    expect((byName.get('keyed') as any).authDetail).toContain('X-Api-Key');
+    expect(byName.get('plain')).toMatchObject({ type: 'remote', authType: 'unknown' });
+    expect(body.data.stats).toMatchObject({ total: 3, enabled: 3, disabled: 0 });
+  });
+
+  it('probes one server and returns the tool list with a count', async () => {
+    const base = await startAdapter(adminToken);
+
+    const probe = await fetch(base + '/api/admin/servers/echo/probe', {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    expect(probe.status).toBe(200);
+    const probeBody = await probe.json() as any;
+    expect(probeBody.data).toMatchObject({ name: 'echo', ok: true, toolsCount: 3 });
+    expect(Array.isArray(probeBody.data.tools)).toBe(true);
+    expect(probeBody.data.tools.length).toBe(3);
+
+    const tools = await fetch(base + '/api/admin/servers/echo/tools', {
+      headers: authHeaders(),
+    });
+    expect(tools.status).toBe(200);
+    const toolsBody = await tools.json() as any;
+    expect(toolsBody.data).toMatchObject({ name: 'echo', toolsCount: 3 });
+    expect(toolsBody.data.tools.map((tool: any) => tool.name)).toEqual(
+      expect.arrayContaining(['echo', 'add']),
+    );
+
+    const overview = await fetch(base + '/api/admin', { headers: authHeaders() });
+    const overviewBody = await overview.json() as any;
+    const echo = overviewBody.data.servers.find((server: any) => server.name === 'echo');
+    expect(echo).toMatchObject({ toolsCount: 3, loaded: true, healthy: true });
+  });
+
+  it('rejects auth checks for local servers and reports disabled servers', async () => {
+    const base = await startAdapter(adminToken);
+
+    const auth = await fetch(base + '/api/admin/servers/echo/auth', {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    expect(auth.status).toBe(400);
+    await expect(auth.json()).resolves.toMatchObject({
+      success: false,
+      error: { message: expect.stringContaining('本地服务器') },
+    });
+
+    const toggle = await fetch(base + '/api/admin/servers/echo/toggle', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(toggle.status).toBe(200);
+
+    const probe = await fetch(base + '/api/admin/servers/echo/probe', {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    expect(probe.status).toBe(502);
+    await expect(probe.json()).resolves.toMatchObject({
+      success: false,
+      error: { message: expect.stringContaining('已禁用') },
+    });
+  });
+
+  it('filters onlyUnknown probes and reports a summary', async () => {
+    writeConfig({ servers: [echoRaw()] });
+    const loaded = loadConfig(configPath);
+    await manager.reconfigure(loaded.config.servers, {
+      groups: loaded.config.groups,
+      permissions: loaded.config.permissions,
+      health: loaded.config.health,
+      configPath,
+    });
+    const base = await startAdapter(adminToken);
+
+    const first = await fetch(base + '/api/admin/probe', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ onlyUnknown: true, concurrency: 2 }),
+    });
+    expect(first.status).toBe(200);
+    const firstBody = await first.json() as any;
+    expect(firstBody.data.results.map((result: any) => result.name).sort()).toEqual(['echo']);
+    expect(firstBody.data.summary).toMatchObject({ total: 1, ok: 1, failed: 0 });
+
+    const second = await fetch(base + '/api/admin/probe', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ onlyUnknown: true }),
+    });
+    expect(second.status).toBe(200);
+    const secondBody = await second.json() as any;
+    expect(secondBody.data.results).toEqual([]);
+    expect(secondBody.data.summary).toMatchObject({ total: 0, ok: 0, failed: 0 });
+  });
+
+  it('validates probe options and reports unknown servers in batches', async () => {
+    const base = await startAdapter(adminToken);
+
+    const badNames = await fetch(base + '/api/admin/probe', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ names: [1, 2] }),
+    });
+    expect(badNames.status).toBe(400);
+
+    const badConcurrency = await fetch(base + '/api/admin/probe', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ concurrency: 'many' }),
+    });
+    expect(badConcurrency.status).toBe(400);
+
+    const unknown = await fetch(base + '/api/admin/servers/missing/probe', {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    expect(unknown.status).toBe(404);
   });
 });

@@ -252,6 +252,7 @@ export async function main(argv: string[]): Promise<void> {
     permissions: loaded.config.permissions,
     health: currentHealth,
     healthOverride: flags.has('--health'),
+    embedServerSummaries: loaded.config.embedServerSummaries,
     configPath: loaded.sourcePath,
     logger,
   });
@@ -295,6 +296,7 @@ export async function main(argv: string[]): Promise<void> {
         permissions: next.config.permissions,
         health: managerHealth(next.config.health, flags),
         healthOverride: flags.has('--health'),
+        embedServerSummaries: next.config.embedServerSummaries,
         configPath: next.sourcePath,
       });
       if (scope) refreshGroupScope(manager, scope);

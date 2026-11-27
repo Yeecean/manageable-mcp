@@ -3,8 +3,9 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { loadConfig } from '../config/load.js';
 import type { LoadedConfig } from '../config/types.js';
-import { errorMessage } from '../core/errors.js';
+import { AppError, errorMessage } from '../core/errors.js';
 import type {
+  ServerProbeResult,
   ServerHealth,
   ServerManager,
   ServerStatus,
@@ -32,16 +33,38 @@ export interface AdminControllerOptions {
 export interface AdminServerView {
   name: string;
   description: string;
+  type: 'local' | 'remote';
   enabled: boolean;
   transport: 'stdio' | 'http';
   status: ServerStatus;
+  authType: 'oauth' | 'api-key' | 'local' | 'unknown';
+  authDetail: string;
+  target: string;
+  tags: string[];
   toolCount?: number;
+  toolsCount: number | null;
+  healthy: boolean;
+  available: boolean;
+  loaded: boolean;
+  authRequired?: boolean;
+  authUrl?: string;
   health?: ServerHealth;
   error?: string;
+  configError?: string;
   raw: RawServerConfig;
 }
 
+export interface AdminStats {
+  total: number;
+  enabled: number;
+  disabled: number;
+  issues: number;
+}
+
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
+const DEFAULT_PROBE_TIMEOUT_MS = 45_000;
+const MIN_PROBE_TIMEOUT_MS = 5_000;
+const MAX_PROBE_TIMEOUT_MS = 120_000;
 const mutationQueues = new Map<string, Promise<unknown>>();
 
 export class AdminController {
@@ -191,6 +214,24 @@ export class AdminController {
         await this.toggleServer(req, res, name);
         return;
       }
+
+      if (segments[2] === 'auth') {
+        requireMethod(req, res, ['POST']);
+        await this.checkAuth(res, name);
+        return;
+      }
+
+      if (segments[2] === 'probe') {
+        requireMethod(req, res, ['POST']);
+        await this.probeServerDetail(res, name);
+        return;
+      }
+
+      if (segments[2] === 'tools') {
+        requireMethod(req, res, ['GET']);
+        await this.getServerTools(res, name);
+        return;
+      }
     }
 
     throw new AdminError(404, '未找到');
@@ -202,11 +243,13 @@ export class AdminController {
     const servers = snapshot.servers.map((raw) =>
       describeServer(raw, summaries.get(typeof raw.name === 'string' ? raw.name : '')),
     );
+    const stats = computeStats(servers);
 
     sendJson(res, 200, {
       success: true,
       data: {
         servers,
+        stats,
         groups: snapshot.groups,
         configFile: this.configPath,
         mcpPath: this.mcpPath,
@@ -287,6 +330,105 @@ export class AdminController {
     sendJson(res, 200, { success: true, data: { server: view } });
   }
 
+  private async checkAuth(res: http.ServerResponse, name: string): Promise<void> {
+    const raw = await this.store.get(name);
+    if (raw.enabled === false) {
+      throw new AdminError(409, `服务器 “${name}” 已停用，请先启用后再授权`);
+    }
+    if (typeof raw.url !== 'string') {
+      throw new AdminError(400, `服务器 “${name}” 是本地服务器，不需要 OAuth 授权`);
+    }
+
+    try {
+      const tools = await this.manager.listTools(name);
+      sendJson(res, 200, {
+        success: true,
+        data: { authRequired: false, toolsCount: tools.length },
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'AUTH_REQUIRED') {
+        const authUrl = typeof error.details?.authUrl === 'string'
+          ? error.details.authUrl
+          : extractAuthorizationUrl(error.message);
+        const oauth = isRecord(raw.oauth) ? raw.oauth : undefined;
+        const staticClient = oauth !== undefined &&
+          typeof oauth.clientId === 'string' &&
+          oauth.clientId.length > 0;
+        if (staticClient && authUrl !== undefined && await authorizationRejectsRedirect(authUrl)) {
+          throw new AdminError(
+            502,
+            `服务器 “${name}” 的静态 OAuth clientId 与回调地址不匹配，提供方拒绝了授权请求。` +
+              '请删除该服务器的 oauth.clientId（保留 oauth: {}）让 manageable-mcp 动态注册，' +
+              '或把该 client 注册的回调地址改为 http://localhost:8947/callback。',
+          );
+        }
+        sendJson(res, 200, {
+          success: true,
+          data: {
+            authRequired: true,
+            ...(authUrl === undefined ? {} : { authUrl }),
+            diagnostic: error.message,
+          },
+        });
+        return;
+      }
+      throw new AdminError(502, `授权检查失败：${errorMessage(error)}`);
+    }
+  }
+
+  private async probeServerDetail(res: http.ServerResponse, name: string): Promise<void> {
+    await this.store.get(name);
+    try {
+      const result = await this.manager.probeServer(name, {
+        includeTools: true,
+        timeoutMs: DEFAULT_PROBE_TIMEOUT_MS,
+      });
+      sendJson(res, 200, { success: true, data: probePayload(result) });
+    } catch (error) {
+      throw new AdminError(502, `工具检测失败：${errorMessage(error)}`);
+    }
+  }
+
+  private async getServerTools(res: http.ServerResponse, name: string): Promise<void> {
+    const raw = await this.store.get(name);
+    if (raw.enabled === false) {
+      throw new AdminError(409, `服务器 “${name}” 已停用，请先启用后再查看工具`);
+    }
+
+    try {
+      const tools = await this.manager.listTools(name);
+      sendJson(res, 200, {
+        success: true,
+        data: {
+          name,
+          toolsCount: tools.length,
+          tools: tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description ?? '',
+          })),
+        },
+      });
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'AUTH_REQUIRED') {
+        const authUrl = typeof error.details?.authUrl === 'string'
+          ? error.details.authUrl
+          : extractAuthorizationUrl(error.message);
+        sendJson(res, 200, {
+          success: true,
+          data: {
+            name,
+            toolsCount: 0,
+            tools: [],
+            authRequired: true,
+            ...(authUrl === undefined ? {} : { authUrl }),
+          },
+        });
+        return;
+      }
+      throw new AdminError(502, `工具列表读取失败：${errorMessage(error)}`);
+    }
+  }
+
   private async reloadConfig(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -308,6 +450,9 @@ export class AdminController {
   ): Promise<void> {
     const body = await readJsonBody(req, this.maxBodyBytes);
     let requested: string[] | undefined;
+    let onlyUnknown = false;
+    let concurrency: number | undefined;
+    let timeoutMs = DEFAULT_PROBE_TIMEOUT_MS;
     if (body !== undefined) {
       const record = requireRecord(body, '请求体必须是对象');
       if (record.names !== undefined) {
@@ -316,24 +461,55 @@ export class AdminController {
         }
         requested = record.names as string[];
       }
+      if (record.onlyUnknown !== undefined) {
+        if (typeof record.onlyUnknown !== 'boolean') {
+          throw new AdminError(400, '字段 "onlyUnknown" 必须是布尔值');
+        }
+        onlyUnknown = record.onlyUnknown;
+      }
+      if (record.concurrency !== undefined) {
+        if (typeof record.concurrency !== 'number' || !Number.isFinite(record.concurrency)) {
+          throw new AdminError(400, '字段 "concurrency" 必须是数字');
+        }
+        concurrency = Math.max(1, Math.min(Math.trunc(record.concurrency), 8));
+      }
+      if (record.timeoutMs !== undefined) {
+        if (typeof record.timeoutMs !== 'number' || !Number.isFinite(record.timeoutMs)) {
+          throw new AdminError(400, '字段 "timeoutMs" 必须是数字');
+        }
+        timeoutMs = Math.min(Math.max(Math.trunc(record.timeoutMs), MIN_PROBE_TIMEOUT_MS), MAX_PROBE_TIMEOUT_MS);
+      }
     }
 
-    const enabledNames = this.manager
-      .listServers()
-      .filter((server) => server.enabled)
-      .map((server) => server.name);
-    const names = requested === undefined
+    const summaries = this.manager.listServers();
+    const enabledNames = summaries.filter((server) => server.enabled).map((server) => server.name);
+    let names = requested === undefined
       ? enabledNames
       : enabledNames.filter((name) => requested.includes(name));
-    const results = await this.manager.probeAllServers(names);
+    if (onlyUnknown && requested === undefined) {
+      const unknown = new Set(
+        summaries
+          .filter((server) => server.enabled && server.toolCount === undefined)
+          .map((server) => server.name),
+      );
+      names = names.filter((name) => unknown.has(name));
+    }
+
+    const results = await this.manager.probeServers(names, { concurrency, timeoutMs });
+    const payloads = results.map(probePayload);
+    const ok = payloads.filter((result) => result.ok === true).length;
+    const authRequired = payloads.filter((result) => result.authRequired === true).length;
 
     sendJson(res, 200, {
       success: true,
       data: {
-        results: results.map((health, index) => ({
-          name: names[index] ?? '',
-          ...health,
-        })),
+        results: payloads,
+        summary: {
+          total: payloads.length,
+          ok,
+          authRequired,
+          failed: payloads.length - ok - authRequired,
+        },
       },
     });
   }
@@ -361,6 +537,7 @@ export class AdminController {
         permissions: loaded.config.permissions,
         health,
         healthOverride: this.manager.isHealthForcedOn(),
+        embedServerSummaries: loaded.config.embedServerSummaries,
         configPath: this.configPath,
       });
       return loaded;
@@ -398,21 +575,184 @@ function describeServer(
   summary: ServerSummary | undefined,
 ): AdminServerView {
   const config = cloneJson(raw);
+  const type: 'local' | 'remote' = summary?.type ??
+    (typeof config.url === 'string' ? 'remote' : 'local');
+  const enabled = summary?.enabled ??
+    (typeof config.enabled === 'boolean' ? config.enabled : true);
+  const configError = typeof config._configError === 'string' ? config._configError : undefined;
+  const auth = detectAuthType(config, type, summary);
+  const authRequired = summary?.authRequired === true || summary?.status === 'auth';
+  const toolsCount = summary?.toolCount ?? null;
+
   const view: AdminServerView = {
     name: typeof config.name === 'string' ? config.name : (summary?.name ?? ''),
     description: typeof config.description === 'string'
       ? config.description
       : (summary?.description ?? ''),
-    enabled: summary?.enabled ?? (typeof config.enabled === 'boolean' ? config.enabled : true),
-    transport: summary?.transport ?? (typeof config.url === 'string' ? 'http' : 'stdio'),
+    type,
+    enabled,
+    transport: summary?.transport ?? (type === 'remote' ? 'http' : 'stdio'),
     status: summary?.status ?? 'idle',
+    authType: auth.type,
+    authDetail: auth.detail,
+    target: summary?.target ?? targetOf(config, type),
+    tags: Array.isArray(config.tags)
+      ? config.tags.filter((tag): tag is string => typeof tag === 'string')
+      : [],
+    toolsCount,
+    healthy: summary?.healthy ?? (configError === undefined),
+    available: summary?.available ?? (configError === undefined),
+    loaded: summary?.loaded ?? false,
+    ...(authRequired ? { authRequired: true } : {}),
+    ...(summary?.authUrl === undefined ? {} : { authUrl: summary.authUrl }),
     raw: config,
   };
 
   if (summary?.toolCount !== undefined) view.toolCount = summary.toolCount;
   if (summary?.health !== undefined) view.health = summary.health;
   if (summary?.error !== undefined) view.error = summary.error;
+  if (configError !== undefined) {
+    view.configError = configError;
+    if (view.error === undefined) view.error = configError;
+  }
   return view;
+}
+
+const AUTH_HEADER_PATTERN =
+  /^(authorization|proxy-authorization|x-api-key|api-key|x-auth-token|x-access-token|token)$/i;
+const AUTH_QUERY_PATTERN =
+  /^(api[_-]?key|apikey|key|token|access[_-]?token|auth|subscription[_-]?key)$/i;
+
+function detectAuthType(
+  raw: Record<string, unknown>,
+  type: 'local' | 'remote',
+  summary: ServerSummary | undefined,
+): { type: 'oauth' | 'api-key' | 'local' | 'unknown'; detail: string } {
+  if (type === 'local' || typeof raw.url !== 'string') {
+    return { type: 'local', detail: '本地进程，无需远程授权' };
+  }
+
+  const oauth = isRecord(raw.oauth) ? raw.oauth : undefined;
+  if (oauth !== undefined || summary?.authRequired === true) {
+    const staticClient = oauth !== undefined &&
+      typeof oauth.clientId === 'string' &&
+      oauth.clientId.length > 0;
+    return {
+      type: 'oauth',
+      detail: staticClient
+        ? 'OAuth 2.0 + PKCE；静态 clientId 必须与回调地址匹配'
+        : 'OAuth 2.0 + PKCE；使用动态客户端注册',
+    };
+  }
+
+  const headerNames = isRecord(raw.headers) ? Object.keys(raw.headers) : [];
+  if (headerNames.length > 0) {
+    const authHeaders = headerNames.filter((name) => AUTH_HEADER_PATTERN.test(name));
+    return {
+      type: 'api-key',
+      detail: `静态 Header：${(authHeaders.length > 0 ? authHeaders : headerNames).join(', ')}`,
+    };
+  }
+
+  const queryIndex = raw.url.indexOf('?');
+  if (queryIndex !== -1) {
+    const params = new URLSearchParams(raw.url.slice(queryIndex + 1).split('#')[0]);
+    const keyNames: string[] = [];
+    params.forEach((_value, key) => {
+      if (AUTH_QUERY_PATTERN.test(key)) keyNames.push(key);
+    });
+    if (keyNames.length > 0) {
+      return { type: 'api-key', detail: `URL 参数：${keyNames.join(', ')}` };
+    }
+  }
+
+  return {
+    type: 'unknown',
+    detail: '未发现静态凭据；点击“检测授权”确认是否需要 OAuth',
+  };
+}
+
+function targetOf(raw: Record<string, unknown>, type: 'local' | 'remote'): string {
+  if (type === 'remote') {
+    return typeof raw.url === 'string' ? raw.url : '';
+  }
+  const command = Array.isArray(raw.command)
+    ? raw.command.filter((part): part is string => typeof part === 'string').join(' ')
+    : (typeof raw.command === 'string' ? raw.command : '');
+  const args = Array.isArray(raw.args)
+    ? raw.args.filter((part): part is string => typeof part === 'string')
+    : [];
+  return [command, ...args].filter(Boolean).join(' ');
+}
+
+function computeStats(servers: AdminServerView[]): AdminStats {
+  const stats: AdminStats = { total: 0, enabled: 0, disabled: 0, issues: 0 };
+  for (const server of servers) {
+    stats.total += 1;
+    if (server.enabled) stats.enabled += 1;
+    else stats.disabled += 1;
+    if (server.enabled && server.status === 'error') stats.issues += 1;
+  }
+  return stats;
+}
+
+function probePayload(result: ServerProbeResult): Record<string, unknown> {
+  return {
+    name: result.name,
+    ok: result.ok,
+    toolsCount: result.toolsCount,
+    ...(result.tools === undefined ? {} : { tools: result.tools }),
+    ...(result.error === undefined ? {} : { error: result.error }),
+    ...(result.authRequired === undefined ? {} : { authRequired: true }),
+    ...(result.authRequired === undefined
+      ? {}
+      : { authUrl: extractAuthorizationUrl(result.authRequired) ?? result.authRequired }),
+    ...(result.latencyMs === undefined ? {} : { latencyMs: result.latencyMs }),
+    checkedAt: result.checkedAt,
+  };
+}
+
+function extractAuthorizationUrl(diagnostic: string | undefined): string | undefined {
+  if (!diagnostic) return undefined;
+  const match = diagnostic.match(/https?:\/\/[^\s]+/);
+  if (!match) return undefined;
+  return match[0].replace(/[),.;]+$/, '');
+}
+
+function isPreflightableAuthorizationUrl(authUrl: string): boolean {
+  try {
+    const url = new URL(authUrl);
+    if (url.protocol === 'https:') return true;
+    if (url.protocol !== 'http:') return false;
+    const host = url.hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  } catch {
+    return false;
+  }
+}
+
+async function authorizationRejectsRedirect(authUrl: string): Promise<boolean> {
+  if (!isPreflightableAuthorizationUrl(authUrl)) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(authUrl, {
+      method: 'GET',
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: { 'User-Agent': 'manageable-mcp-admin' },
+    });
+    if (response.status !== 400 && response.status !== 401 && response.status !== 403) {
+      return false;
+    }
+    const body = await response.text();
+    return /invalid[ _-]?redirect[ _-]?uri/i.test(body) ||
+      (/invalid_request/i.test(body) && /redirect/i.test(body));
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function decodeSegment(value: string): string {

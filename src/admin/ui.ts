@@ -225,6 +225,31 @@ main {
 .stat-label { color: var(--muted); font-size: 0.78rem; }
 .stat.ok .stat-value { color: var(--ok); }
 .stat.bad .stat-value { color: var(--danger); }
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.segmented button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.segmented button:hover:not(:disabled) { color: var(--text); }
+.segmented button.is-active {
+  color: var(--text);
+  background: var(--panel-raised);
+  border-color: var(--border-strong);
+}
 .toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .search input, .text-input {
   width: 100%;
@@ -384,6 +409,12 @@ main {
 }
 .badge.transport { color: var(--blue); background: color-mix(in srgb, var(--blue) 11%, transparent); }
 .badge.disabled { color: var(--faint); }
+.badge.type-local { color: var(--muted); }
+.badge.type-remote { color: var(--blue); background: color-mix(in srgb, var(--blue) 11%, transparent); }
+.badge.auth-oauth { color: var(--ok); background: var(--ok-soft); }
+.badge.auth-api-key { color: var(--warn); background: var(--warn-soft); }
+.badge.auth-local { color: var(--muted); }
+.badge.auth-unknown { color: var(--faint); }
 .status-ready { color: var(--ok); background: var(--ok-soft); }
 .status-connecting { color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
 .status-auth { color: var(--warn); background: var(--warn-soft); }
@@ -397,6 +428,35 @@ main {
 }
 .card-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--faint); font-size: 0.75rem; }
 .meta-item { display: inline-flex; align-items: center; gap: 4px; }
+.meta-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+.meta-action:hover:not(:disabled) { text-decoration: underline; }
+.meta-action:disabled { color: var(--faint); cursor: wait; }
+.card-target {
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-target code { background: transparent; border: 0; padding: 0; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.tag {
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
 .card-error {
   margin: 0;
   padding: 9px 10px;
@@ -407,6 +467,16 @@ main {
   overflow-wrap: anywhere;
 }
 .card-actions { display: flex; gap: 7px; margin-top: auto; padding-top: 2px; }
+.tool-list { display: grid; gap: 10px; max-height: 52vh; overflow: auto; padding-right: 4px; }
+.tool-row {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-soft);
+}
+.tool-row code { display: inline-block; margin-bottom: 4px; }
+.tool-row p { margin: 0; color: var(--muted); font-size: 0.8rem; overflow-wrap: anywhere; }
+.tool-empty { padding: 22px; color: var(--muted); text-align: center; }
 
 .switch { position: relative; display: inline-flex; flex: 0 0 auto; }
 .switch input {
@@ -606,7 +676,13 @@ main {
     </div>
     <aside class="path-card" aria-label="运行信息">
       <div class="path-row"><span>配置文件</span><code id="configPath">加载中...</code></div>
-      <div class="path-row"><span>MCP 端点</span><code id="mcpPath">加载中...</code></div>
+      <div class="path-row">
+        <span>MCP 端点</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <code id="mcpPath" style="flex:1">加载中...</code>
+          <button id="copyEndpointBtn" class="icon-button" type="button" title="复制 MCP 端点" aria-label="复制 MCP 端点" style="width:34px;height:34px;flex:0 0 auto">&#10697;</button>
+        </div>
+      </div>
       <div class="path-note">管理面板优先在本机使用。密钥值在原始配置中仍保留为环境变量或文件占位符。</div>
     </aside>
   </section>
@@ -618,8 +694,14 @@ main {
         <span class="sr-only">筛选服务器</span>
         <input id="search" type="search" placeholder="筛选服务器" autocomplete="off">
       </label>
+      <div id="statusFilter" class="segmented" role="group" aria-label="按状态筛选">
+        <button type="button" data-filter="all" class="is-active">全部</button>
+        <button type="button" data-filter="enabled">已启用</button>
+        <button type="button" data-filter="disabled">已停用</button>
+        <button type="button" data-filter="error">异常</button>
+      </div>
       <button id="reloadBtn" class="button" type="button">重新加载配置</button>
-      <button id="probeBtn" class="button" type="button">探测服务器</button>
+      <button id="probeBtn" class="button" type="button" title="连接所有已启用服务器并刷新工具数量">检测工具</button>
       <button id="addBtn" class="button primary" type="button">添加服务器</button>
     </div>
   </section>
@@ -679,6 +761,45 @@ main {
   </div>
 </dialog>
 
+<dialog id="oauthDialog" class="modal compact">
+  <div class="modal-head">
+    <div>
+      <p class="eyebrow">OAuth 授权</p>
+      <h2 id="oauthTitle">授权服务器</h2>
+    </div>
+    <button id="oauthClose" class="icon-button" type="button" aria-label="关闭">&times;</button>
+  </div>
+  <p id="oauthHint" class="modal-hint"></p>
+  <div id="oauthOpenField" class="modal-footer-row" hidden>
+    <a id="oauthOpen" class="button primary" href="#" target="_blank" rel="noopener noreferrer">打开授权页面</a>
+  </div>
+  <div id="oauthUrlField" hidden>
+    <span class="eyebrow">授权链接</span>
+    <input id="oauthUrl" class="text-input" type="text" readonly spellcheck="false">
+  </div>
+  <p id="oauthDiagnostic" class="modal-hint" hidden></p>
+  <div class="modal-actions">
+    <button id="oauthCopy" class="button" type="button">复制链接</button>
+    <button id="oauthClose2" class="button" type="button">关闭</button>
+    <button id="oauthRefresh" class="button primary" type="button">我已授权，刷新</button>
+  </div>
+</dialog>
+
+<dialog id="toolsDialog" class="modal">
+  <div class="modal-head">
+    <div>
+      <p class="eyebrow">工具列表</p>
+      <h2 id="toolsTitle">工具列表</h2>
+    </div>
+    <button id="toolsClose" class="icon-button" type="button" aria-label="关闭">&times;</button>
+  </div>
+  <p id="toolsSub" class="modal-hint"></p>
+  <div id="toolsBody" class="tool-list"></div>
+  <div class="modal-actions">
+    <button id="toolsClose2" class="button" type="button">关闭</button>
+  </div>
+</dialog>
+
 <script>
 (function () {
   'use strict';
@@ -693,7 +814,19 @@ main {
     '  "enabled": true\n' +
     '}';
 
-  var state = { data: null, token: '', filter: '', editing: null, loading: false };
+  var state = {
+    data: null,
+    token: '',
+    filter: 'all',
+    query: '',
+    editing: null,
+    loading: false,
+    toolsCache: {},
+    probing: {},
+    probingAll: false,
+    autoProbeStarted: false,
+    oauthServer: null,
+  };
   var els = {};
 
   function byId(id) {
@@ -847,6 +980,13 @@ main {
     return labels[status] || String(status || '未知');
   }
 
+  function authLabel(type) {
+    if (type === 'oauth') return 'OAuth';
+    if (type === 'api-key') return 'API Key';
+    if (type === 'local') return '本地';
+    return '自动检测';
+  }
+
   function healthClass(server) {
     if (server.enabled === false) return 'muted';
     if (server.health && server.health.healthy === true) return 'ok';
@@ -867,17 +1007,14 @@ main {
   function renderStats(servers) {
     els.stats.textContent = '';
     var enabled = servers.filter(function (server) { return server.enabled !== false; }).length;
-    var healthy = servers.filter(function (server) {
-      return server.health && server.health.healthy === true;
-    }).length;
+    var disabled = servers.length - enabled;
     var issues = servers.filter(function (server) {
-      return server.status === 'error' || server.status === 'auth' ||
-        (server.health && server.health.healthy === false);
+      return server.enabled !== false && server.status === 'error';
     }).length;
     var items = [
-      { label: '服务器', value: servers.length, tone: '' },
+      { label: '服务器总数', value: servers.length, tone: '' },
       { label: '已启用', value: enabled, tone: 'ok' },
-      { label: '健康', value: healthy, tone: 'ok' },
+      { label: '已停用', value: disabled, tone: '' },
       { label: '异常', value: issues, tone: issues > 0 ? 'bad' : '' },
     ];
     items.forEach(function (item) {
@@ -911,12 +1048,19 @@ main {
   }
 
   function matchesFilter(server) {
-    var needle = state.filter.trim().toLowerCase();
+    if (state.filter === 'enabled' && server.enabled === false) return false;
+    if (state.filter === 'disabled' && server.enabled !== false) return false;
+    if (state.filter === 'error' && !(server.enabled !== false && server.status === 'error')) {
+      return false;
+    }
+    var needle = state.query.trim().toLowerCase();
     if (!needle) return true;
-    var haystack = String(server.name || '').toLowerCase();
-    if (String(server.description || '').toLowerCase().indexOf(needle) !== -1) return true;
-    if (haystack.indexOf(needle) !== -1) return true;
-    return String(server.status || '').toLowerCase().indexOf(needle) !== -1;
+    var haystack = [
+      server.name,
+      server.description,
+      Array.isArray(server.tags) ? server.tags.join(' ') : '',
+    ].join(' ').toLowerCase();
+    return haystack.indexOf(needle) !== -1;
   }
 
   function buildToggle(server) {
@@ -951,7 +1095,20 @@ main {
 
     var controls = el('div', 'card-controls');
     var badges = el('div', 'badges');
-    badges.appendChild(el('span', 'badge transport', String(server.transport || 'stdio').toUpperCase()));
+    badges.appendChild(el(
+      'span',
+      'badge type-' + String(server.type || 'local'),
+      server.type === 'remote' ? '远程' : '本地',
+    ));
+    if (server.type === 'remote') {
+      var authBadge = el(
+        'span',
+        'badge auth-' + String(server.authType || 'unknown'),
+        authLabel(server.authType),
+      );
+      authBadge.title = String(server.authDetail || '');
+      badges.appendChild(authBadge);
+    }
     badges.appendChild(el('span', 'badge status-' + String(server.status || 'idle'), statusLabel(server.status)));
     if (server.enabled === false) badges.appendChild(el('span', 'badge disabled', '已停用'));
     controls.appendChild(badges);
@@ -961,20 +1118,82 @@ main {
 
     card.appendChild(el('p', 'card-description', server.description || '暂无描述。'));
 
-    var meta = el('div', 'card-meta');
-    if (server.toolCount !== undefined) {
-      meta.appendChild(el('span', 'meta-item', server.toolCount + ' 个工具'));
+    if (server.target) {
+      var target = el('div', 'card-target');
+      target.title = String(server.target);
+      target.appendChild(el('code', null, server.target));
+      card.appendChild(target);
     }
+
+    if (Array.isArray(server.tags) && server.tags.length > 0) {
+      var tagRow = el('div', 'card-tags');
+      server.tags.forEach(function (tag) {
+        tagRow.appendChild(el('span', 'tag', tag));
+      });
+      card.appendChild(tagRow);
+    }
+
+    var problem = server.error || server.configError || (server.health && server.health.error);
+    if (problem) card.appendChild(el('p', 'card-error', problem));
+
+    var meta = el('div', 'card-meta');
+    var probing = state.probing[server.name] === true;
+    var toolsCount = typeof server.toolsCount === 'number'
+      ? server.toolsCount
+      : (typeof server.toolCount === 'number' ? server.toolCount : null);
+    var toolsAction = el('button', 'meta-action', probing
+      ? '工具检测中...'
+      : (toolsCount === null ? '工具数未知 · 点击检测' : '工具 ' + toolsCount + ' 个 · 查看'));
+    toolsAction.type = 'button';
+    toolsAction.disabled = probing || server.enabled === false;
+    toolsAction.title = toolsCount === null
+      ? '连接该服务器并检测工具数量'
+      : '查看已检测到的工具列表';
+    toolsAction.addEventListener('click', function () {
+      if (toolsCount === null) probeOne(server);
+      else openTools(server);
+    });
+    meta.appendChild(toolsAction);
     meta.appendChild(el('span', 'meta-item', '最近检查：' + formatTime(server.health && server.health.lastChecked)));
     if (server.health && server.health.latencyMs !== undefined) {
       meta.appendChild(el('span', 'meta-item', server.health.latencyMs + ' 毫秒'));
     }
+    if (server.type === 'remote' && server.authDetail) {
+      var authMeta = el('span', 'meta-item', server.authDetail);
+      authMeta.title = String(server.authDetail);
+      meta.appendChild(authMeta);
+    }
     card.appendChild(meta);
 
-    var problem = server.error || (server.health && server.health.error);
-    if (problem) card.appendChild(el('p', 'card-error', problem));
-
     var actions = el('div', 'card-actions');
+    var probe = el('button', 'button ghost small', '检测');
+    probe.type = 'button';
+    probe.disabled = probing || server.enabled === false;
+    probe.title = '检测 ' + String(server.name || '') + ' 的工具';
+    probe.addEventListener('click', function () {
+      probeOne(server);
+    });
+    actions.appendChild(probe);
+
+    if (
+      server.type === 'remote' &&
+      server.enabled !== false &&
+      (server.authType === 'oauth' || server.authType === 'unknown')
+    ) {
+      var authText = server.authType === 'unknown'
+        ? '检测授权'
+        : (server.authRequired ? '重新授权' : '授权');
+      var authButton = el('button', 'button ghost small', authText);
+      authButton.type = 'button';
+      authButton.title = server.authType === 'unknown'
+        ? '检测该服务器是否需要 OAuth，并在需要时获取授权链接'
+        : '检查登录状态并获取 OAuth 授权链接';
+      authButton.addEventListener('click', function () {
+        onAuthorize(server, authButton);
+      });
+      actions.appendChild(authButton);
+    }
+
     var edit = el('button', 'button ghost small', '编辑 JSON');
     edit.type = 'button';
     edit.addEventListener('click', function () {
@@ -1011,10 +1230,12 @@ main {
   function render() {
     if (!state.data) return;
     els.configPath.textContent = state.data.configFile || '未知';
-    els.mcpPath.textContent = state.data.mcpPath || '未知';
+    els.mcpPath.textContent = state.data.mcpPath
+      ? window.location.origin + state.data.mcpPath
+      : '未知';
     var servers = Array.isArray(state.data.servers) ? state.data.servers : [];
     var filtered = servers.filter(matchesFilter);
-    els.serverCount.textContent = state.filter
+    els.serverCount.textContent = (state.query || state.filter !== 'all')
       ? '显示 ' + filtered.length + ' / ' + servers.length
       : '共 ' + servers.length + ' 个服务器';
     renderStats(servers);
@@ -1074,6 +1295,7 @@ main {
       clearNotice();
       render();
       updateAuthButton();
+      autoProbeUnknown();
     }).catch(function (error) {
       if (error.status === 401) {
         openAuth();
@@ -1204,24 +1426,292 @@ main {
   }
 
   function probeServers(button) {
+    if (state.probingAll) return;
+    state.probingAll = true;
     setBusy(button, true);
-    api('/api/admin/probe', { method: 'POST' })
+    var servers = state.data && Array.isArray(state.data.servers) ? state.data.servers : [];
+    servers.forEach(function (server) {
+      if (server.enabled !== false) state.probing[server.name] = true;
+    });
+    render();
+    api('/api/admin/probe', { method: 'POST', body: JSON.stringify({ concurrency: 3 }) })
       .then(function (body) {
         var results = body && body.data && Array.isArray(body.data.results)
           ? body.data.results
           : [];
-        var healthy = results.filter(function (result) {
-          return result.healthy === true;
-        }).length;
-        toast('已探测 ' + results.length + ' 个服务器，' + healthy + ' 个健康', 'ok');
+        results.forEach(applyProbeResult);
+        var summary = (body && body.data && body.data.summary) || {};
+        var kind = (summary.failed || 0) > 0
+          ? 'bad'
+          : ((summary.authRequired || 0) > 0 ? 'ok' : 'ok');
+        toast(
+          '检测完成：成功 ' + (summary.ok || 0) +
+            '，待授权 ' + (summary.authRequired || 0) +
+            '，失败 ' + (summary.failed || 0),
+          kind,
+        );
         return load(true);
       })
       .catch(function (error) {
         toast(error.message || '探测失败', 'bad');
       })
       .finally(function () {
+        state.probing = {};
+        state.probingAll = false;
         setBusy(button, false);
+        render();
       });
+  }
+
+  function findServer(name) {
+    var servers = state.data && Array.isArray(state.data.servers) ? state.data.servers : [];
+    for (var index = 0; index < servers.length; index += 1) {
+      if (servers[index].name === name) return servers[index];
+    }
+    return null;
+  }
+
+  function applyProbeResult(result) {
+    var server = findServer(result.name);
+    if (!server) return;
+    if (Array.isArray(result.tools)) state.toolsCache[result.name] = result.tools;
+    server.toolsCount = typeof result.toolsCount === 'number' ? result.toolsCount : null;
+    server.toolCount = server.toolsCount === null ? undefined : server.toolsCount;
+    server.loaded = result.ok === true;
+    server.healthy = result.ok === true;
+    if (result.ok === true) {
+      delete server.error;
+      delete server.authRequired;
+      delete server.authUrl;
+      server.status = server.enabled === false ? 'idle' : 'ready';
+    } else if (result.authRequired) {
+      delete server.error;
+      server.authRequired = true;
+      if (result.authUrl) server.authUrl = result.authUrl;
+      server.status = 'auth';
+    } else {
+      delete server.authRequired;
+      server.error = result.error || '工具检测失败';
+      server.status = 'error';
+    }
+  }
+
+  function probeOne(server) {
+    if (!server || state.probingAll || state.probing[server.name]) return;
+    state.probing[server.name] = true;
+    render();
+    api('/api/admin/servers/' + encodeURIComponent(server.name) + '/probe', { method: 'POST' })
+      .then(function (body) {
+        var data = body && body.data ? body.data : {};
+        applyProbeResult(data);
+        if (data.ok) {
+          toast(server.name + '：检测到 ' + data.toolsCount + ' 个工具', 'ok');
+        } else if (data.authRequired) {
+          toast(server.name + ' 需要 OAuth 授权，请点击卡片上的「授权」', 'ok');
+        } else {
+          toast(server.name + '：' + (data.error || '检测失败'), 'bad');
+        }
+      })
+      .catch(function (error) {
+        toast(error.message || '检测失败', 'bad');
+      })
+      .finally(function () {
+        delete state.probing[server.name];
+        render();
+      });
+  }
+
+  function autoProbeUnknown() {
+    if (state.autoProbeStarted) return;
+    var servers = state.data && Array.isArray(state.data.servers) ? state.data.servers : [];
+    var names = servers
+      .filter(function (server) {
+        return server.enabled !== false &&
+          server.toolsCount === null &&
+          !state.probing[server.name];
+      })
+      .map(function (server) { return server.name; });
+    if (names.length === 0) return;
+    state.autoProbeStarted = true;
+    names.forEach(function (name) { state.probing[name] = true; });
+    render();
+    api('/api/admin/probe', {
+      method: 'POST',
+      body: JSON.stringify({ onlyUnknown: true, concurrency: 2 }),
+    })
+      .then(function (body) {
+        var results = body && body.data && Array.isArray(body.data.results)
+          ? body.data.results
+          : [];
+        results.forEach(applyProbeResult);
+      })
+      .catch(function () {})
+      .finally(function () {
+        names.forEach(function (name) { delete state.probing[name]; });
+        render();
+      });
+  }
+
+  function renderTools(server, tools) {
+    els.toolsTitle.textContent = server.name + ' 的工具';
+    els.toolsSub.textContent = tools.length + ' 个工具 · 来自该服务器的 tools/list';
+    els.toolsBody.textContent = '';
+    if (tools.length === 0) {
+      els.toolsBody.appendChild(el('div', 'tool-empty', '该服务器没有返回任何工具'));
+      return;
+    }
+    tools.forEach(function (tool) {
+      var row = el('div', 'tool-row');
+      row.appendChild(el('code', null, tool.name));
+      row.appendChild(el('p', null, tool.description || '（无描述）'));
+      els.toolsBody.appendChild(row);
+    });
+  }
+
+  function openTools(server) {
+    var cached = state.toolsCache[server.name];
+    if (Array.isArray(cached)) {
+      renderTools(server, cached);
+      if (!els.toolsDialog.open) els.toolsDialog.showModal();
+      return;
+    }
+    els.toolsTitle.textContent = server.name + ' 的工具';
+    els.toolsSub.textContent = '正在读取工具列表...';
+    els.toolsBody.textContent = '';
+    els.toolsBody.appendChild(el('div', 'tool-empty', '正在读取工具列表...'));
+    if (!els.toolsDialog.open) els.toolsDialog.showModal();
+    api('/api/admin/servers/' + encodeURIComponent(server.name) + '/tools')
+      .then(function (body) {
+        var data = body && body.data ? body.data : {};
+        if (data.authRequired) {
+          els.toolsSub.textContent = '需要授权';
+          els.toolsBody.textContent = '';
+          els.toolsBody.appendChild(
+            el('div', 'tool-empty', '该服务器需要先完成 OAuth 授权，请关闭此窗口并在卡片上点击「授权」。'),
+          );
+          return;
+        }
+        var tools = Array.isArray(data.tools) ? data.tools : [];
+        state.toolsCache[server.name] = tools;
+        if (typeof data.toolsCount === 'number') {
+          server.toolsCount = data.toolsCount;
+          server.toolCount = data.toolsCount;
+        }
+        renderTools(server, tools);
+        render();
+      })
+      .catch(function (error) {
+        els.toolsDialog.close();
+        toast(error.message || '读取工具列表失败', 'bad');
+      });
+  }
+
+  function openOauthDialog(name, authUrl, diagnostic) {
+    var hasUrl = typeof authUrl === 'string' && /^https?:\/\//i.test(authUrl);
+    state.oauthServer = name;
+    els.oauthTitle.textContent = '授权 ' + name;
+    els.oauthHint.textContent = hasUrl
+      ? '在浏览器中打开下面的链接完成登录。授权完成后回到此面板，点击“我已授权，刷新”。'
+      : '服务器要求授权，但没有返回可用的链接。请查看下方诊断信息。';
+    els.oauthOpenField.hidden = !hasUrl;
+    els.oauthUrlField.hidden = !hasUrl;
+    els.oauthOpen.href = hasUrl ? authUrl : '#';
+    els.oauthUrl.value = hasUrl ? authUrl : '';
+    if (diagnostic) {
+      els.oauthDiagnostic.textContent = diagnostic;
+      els.oauthDiagnostic.hidden = false;
+    } else {
+      els.oauthDiagnostic.textContent = '';
+      els.oauthDiagnostic.hidden = true;
+    }
+    if (!els.oauthDialog.open) els.oauthDialog.showModal();
+  }
+
+  function checkServerAuth(server, button, onRequired) {
+    if (button && button.disabled) return;
+    if (button) {
+      button.disabled = true;
+      button.dataset.label = button.textContent;
+      button.textContent = '检查中...';
+    }
+    api('/api/admin/servers/' + encodeURIComponent(server.name) + '/auth', { method: 'POST' })
+      .then(function (body) {
+        var data = body && body.data ? body.data : {};
+        if (data.authRequired) {
+          onRequired(data.authUrl, data.diagnostic);
+        } else {
+          toast('该服务器无需授权，已可正常使用', 'ok');
+          load(true);
+        }
+      })
+      .catch(function (error) {
+        toast(error.message || '授权检查失败', 'bad');
+      })
+      .finally(function () {
+        if (button) {
+          button.disabled = false;
+          if (button.dataset.label !== undefined) {
+            button.textContent = button.dataset.label;
+            delete button.dataset.label;
+          }
+        }
+      });
+  }
+
+  function onAuthorize(server, button) {
+    checkServerAuth(server, button, function (authUrl, diagnostic) {
+      openOauthDialog(server.name, authUrl, diagnostic);
+    });
+  }
+
+  function onAuthRefresh(button) {
+    var name = state.oauthServer;
+    els.oauthDialog.close();
+    if (!name) {
+      load(true);
+      return;
+    }
+    var server = findServer(name) || { name: name };
+    checkServerAuth(server, button, function (authUrl, diagnostic) {
+      openOauthDialog(name, authUrl, diagnostic);
+    });
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        var area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(area);
+        if (ok) resolve();
+        else reject(new Error('copy failed'));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  function copyEndpoint() {
+    var value = state.data && state.data.mcpPath
+      ? window.location.origin + state.data.mcpPath
+      : '';
+    if (!value) {
+      toast('暂无可复制的端点', 'ok');
+      return;
+    }
+    copyText(value).then(function () {
+      toast('已复制 MCP 端点', 'ok');
+    }).catch(function () {
+      toast('复制失败，请手动选择复制', 'bad');
+    });
   }
 
   function openAuth() {
@@ -1281,9 +1771,37 @@ main {
     els.reloadBtn.addEventListener('click', function () { reloadConfig(els.reloadBtn); });
     els.probeBtn.addEventListener('click', function () { probeServers(els.probeBtn); });
     els.search.addEventListener('input', function () {
-      state.filter = els.search.value;
+      state.query = els.search.value;
       if (state.data) render();
     });
+    els.copyEndpointBtn.addEventListener('click', copyEndpoint);
+    els.oauthClose.addEventListener('click', function () { els.oauthDialog.close(); });
+    els.oauthClose2.addEventListener('click', function () { els.oauthDialog.close(); });
+    els.oauthRefresh.addEventListener('click', function () { onAuthRefresh(els.oauthRefresh); });
+    els.oauthCopy.addEventListener('click', function () {
+      var value = els.oauthUrl.value;
+      if (!value) {
+        toast('没有可复制的授权链接', 'ok');
+        return;
+      }
+      copyText(value).then(function () {
+        toast('已复制授权链接', 'ok');
+      }).catch(function () {
+        toast('复制失败，请手动选择复制', 'bad');
+      });
+    });
+    els.toolsClose.addEventListener('click', function () { els.toolsDialog.close(); });
+    els.toolsClose2.addEventListener('click', function () { els.toolsDialog.close(); });
+    var filterButtons = els.statusFilter.querySelectorAll('button');
+    for (var index = 0; index < filterButtons.length; index += 1) {
+      filterButtons[index].addEventListener('click', function () {
+        state.filter = this.getAttribute('data-filter') || 'all';
+        for (var inner = 0; inner < filterButtons.length; inner += 1) {
+          filterButtons[inner].classList.toggle('is-active', filterButtons[inner] === this);
+        }
+        if (state.data) render();
+      });
+    }
 
     els.editorClose.addEventListener('click', function () { els.editorDialog.close(); });
     els.editorCancel.addEventListener('click', function () { els.editorDialog.close(); });
@@ -1295,7 +1813,7 @@ main {
       }
     });
 
-    [els.editorDialog, els.authDialog].forEach(function (dialog) {
+    [els.editorDialog, els.authDialog, els.oauthDialog, els.toolsDialog].forEach(function (dialog) {
       dialog.addEventListener('click', function (event) {
         if (event.target === dialog) dialog.close();
       });
@@ -1333,6 +1851,26 @@ main {
       authClose: byId('authClose'),
       authSave: byId('authSave'),
       authClear: byId('authClear'),
+      copyEndpointBtn: byId('copyEndpointBtn'),
+      statusFilter: byId('statusFilter'),
+      oauthDialog: byId('oauthDialog'),
+      oauthTitle: byId('oauthTitle'),
+      oauthHint: byId('oauthHint'),
+      oauthOpenField: byId('oauthOpenField'),
+      oauthOpen: byId('oauthOpen'),
+      oauthUrlField: byId('oauthUrlField'),
+      oauthUrl: byId('oauthUrl'),
+      oauthDiagnostic: byId('oauthDiagnostic'),
+      oauthClose: byId('oauthClose'),
+      oauthClose2: byId('oauthClose2'),
+      oauthCopy: byId('oauthCopy'),
+      oauthRefresh: byId('oauthRefresh'),
+      toolsDialog: byId('toolsDialog'),
+      toolsTitle: byId('toolsTitle'),
+      toolsSub: byId('toolsSub'),
+      toolsBody: byId('toolsBody'),
+      toolsClose: byId('toolsClose'),
+      toolsClose2: byId('toolsClose2'),
     };
 
     bootToken();

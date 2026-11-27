@@ -10,6 +10,7 @@ import { AppError, OAuthAuthorizationRequiredError, errorMessage } from '../core
 import { silentLogger, type Logger } from '../core/logger.js';
 import { TimeoutError, withTimeout } from '../core/timeout.js';
 import type {
+  EmbedServerSummariesConfig,
   GlobalPermissions,
   GroupConfig,
   HealthConfig,
@@ -34,11 +35,45 @@ export interface ServerSummary {
   name: string;
   description: string;
   enabled: boolean;
+  type: 'local' | 'remote';
   transport: 'stdio' | 'http';
+  target: string;
   status: ServerStatus;
   toolCount?: number;
+  tags: string[];
+  healthy: boolean;
+  available: boolean;
+  loaded: boolean;
+  authRequired?: boolean;
+  authUrl?: string;
   error?: string;
   health?: ServerHealth;
+}
+
+export interface ToolSummary {
+  name: string;
+  description: string;
+}
+
+export interface ServerProbeResult {
+  name: string;
+  ok: boolean;
+  toolsCount: number | null;
+  tools?: ToolSummary[];
+  error?: string;
+  authRequired?: string;
+  latencyMs?: number;
+  checkedAt: number;
+}
+
+export interface ProbeOptions {
+  timeoutMs?: number;
+  includeTools?: boolean;
+}
+
+export interface ProbeBatchOptions {
+  concurrency?: number;
+  timeoutMs?: number;
 }
 
 export interface ManagerOptions {
@@ -46,6 +81,7 @@ export interface ManagerOptions {
   permissions?: GlobalPermissions;
   health?: HealthConfig;
   healthOverride?: boolean;
+  embedServerSummaries?: EmbedServerSummariesConfig;
   configPath?: string;
   logger?: Logger;
 }
@@ -55,6 +91,7 @@ interface ServerEntry {
   status: ServerStatus;
   client?: DownstreamConnection;
   connecting?: Promise<DownstreamConnection>;
+  probing?: Promise<ServerProbeResult>;
   tools?: Tool[];
   error?: string;
   health?: ServerHealth;
@@ -73,6 +110,7 @@ export class ServerManager {
   private globalPermissions: GlobalPermissions;
   private healthConfig: HealthConfig;
   private healthOverride: boolean;
+  private embedSummaries: EmbedServerSummariesConfig;
   private readonly configPath?: string;
   private readonly logger: Logger;
   private closing = false;
@@ -86,6 +124,7 @@ export class ServerManager {
     this.globalPermissions = options.permissions ?? { rules: [] };
     this.healthConfig = options.health ?? DEFAULT_HEALTH;
     this.healthOverride = options.healthOverride ?? false;
+    this.embedSummaries = options.embedServerSummaries ?? { enabled: true };
     this.configPath = options.configPath;
     this.logger = options.logger ?? silentLogger;
   }
@@ -93,16 +132,28 @@ export class ServerManager {
   listServers(scope?: ProxyScope): ServerSummary[] {
     return Array.from(this.entries.values())
       .filter((entry) => scope === undefined || scope.allowedServers.has(entry.config.name))
-      .map((entry) => ({
-        name: entry.config.name,
-        description: entry.config.description,
-        enabled: entry.config.enabled,
-        transport: entry.config.url ? 'http' : 'stdio',
-        status: entry.status,
-        ...(entry.tools === undefined ? {} : { toolCount: entry.tools.length }),
-        ...(entry.error === undefined ? {} : { error: entry.error }),
-        ...(entry.health === undefined ? {} : { health: entry.health }),
-      }));
+      .map((entry) => {
+        const type: 'local' | 'remote' = entry.config.url === undefined ? 'local' : 'remote';
+        const authRequired = entry.health?.authRequired === true || entry.status === 'auth';
+        return {
+          name: entry.config.name,
+          description: entry.config.description,
+          enabled: entry.config.enabled,
+          type,
+          transport: type === 'remote' ? 'http' : 'stdio',
+          target: targetOf(entry.config),
+          status: entry.status,
+          ...(entry.tools === undefined ? {} : { toolCount: entry.tools.length }),
+          tags: entry.config.tags ?? [],
+          healthy: entry.health?.healthy ?? true,
+          available: true,
+          loaded: entry.tools !== undefined,
+          ...(authRequired ? { authRequired: true } : {}),
+          ...(entry.health?.authUrl === undefined ? {} : { authUrl: entry.health.authUrl }),
+          ...(entry.error === undefined ? {} : { error: entry.error }),
+          ...(entry.health === undefined ? {} : { health: entry.health }),
+        };
+      });
   }
 
   getServerConfig(name: string): ServerConfig | undefined {
@@ -119,6 +170,10 @@ export class ServerManager {
 
   getHealthConfig(): HealthConfig {
     return this.healthConfig;
+  }
+
+  getEmbedServerSummaries(): EmbedServerSummariesConfig {
+    return this.embedSummaries;
   }
 
   isHealthForcedOn(): boolean {
@@ -271,13 +326,76 @@ export class ServerManager {
     }
   }
 
-  async probeAllServers(names?: string[]): Promise<ServerHealth[]> {
+  async probeAllServers(names?: string[]): Promise<ServerProbeResult[]> {
     this.assertOpen();
     const selected = names === undefined ? undefined : new Set(names);
-    const entries = Array.from(this.entries.values()).filter(
-      (entry) => entry.config.enabled && (selected === undefined || selected.has(entry.config.name)),
+    const selectedNames = Array.from(this.entries.values())
+      .filter(
+        (entry) => entry.config.enabled && (selected === undefined || selected.has(entry.config.name)),
+      )
+      .map((entry) => entry.config.name);
+    return await this.probeServers(selectedNames, { timeoutMs: this.healthConfig.timeoutMs });
+  }
+
+  async probeServer(name: string, options: ProbeOptions = {}): Promise<ServerProbeResult> {
+    const entry = this.entries.get(name);
+    if (!entry) {
+      throw new AppError(
+        'SERVER_NOT_FOUND',
+        `未知服务器 '${name}'。请先调用 list_servers。`,
+        { server: name },
+      );
+    }
+    if (!entry.config.enabled) {
+      throw new AppError('SERVER_DISABLED', `服务器 '${name}' 已禁用。`, { server: name });
+    }
+
+    if (entry.probing) return entry.probing;
+    const timeoutMs = options.timeoutMs !== undefined && options.timeoutMs > 0
+      ? options.timeoutMs
+      : this.healthConfig.timeoutMs;
+    const probe = this.probeEntry(entry, timeoutMs, options.includeTools === true);
+    entry.probing = probe;
+    try {
+      return await probe;
+    } finally {
+      if (entry.probing === probe) entry.probing = undefined;
+    }
+  }
+
+  async probeServers(
+    names: string[],
+    options: ProbeBatchOptions = {},
+  ): Promise<ServerProbeResult[]> {
+    const unique = Array.from(new Set(names));
+    if (unique.length === 0) return [];
+
+    const concurrency = Math.max(1, Math.min(options.concurrency ?? 3, 8));
+    const results: ServerProbeResult[] = new Array(unique.length);
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= unique.length) return;
+        const name = unique[index] as string;
+        try {
+          results[index] = await this.probeServer(name, { timeoutMs: options.timeoutMs });
+        } catch (error) {
+          results[index] = {
+            name,
+            ok: false,
+            toolsCount: null,
+            error: errorMessage(error),
+            checkedAt: Date.now(),
+          };
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, unique.length) }, () => worker()),
     );
-    return await Promise.all(entries.map(async (entry) => this.probeEntry(entry)));
+    return results;
   }
 
   touchActivity(): void {
@@ -308,6 +426,7 @@ export class ServerManager {
     this.globalPermissions = options.permissions ?? { rules: [] };
     this.healthConfig = options.health ?? DEFAULT_HEALTH;
     this.healthOverride = options.healthOverride ?? false;
+    this.embedSummaries = options.embedServerSummaries ?? { enabled: true };
     this.closing = wasClosing;
   }
 
@@ -317,21 +436,42 @@ export class ServerManager {
     await this.closeConnections();
   }
 
-  private async probeEntry(entry: ServerEntry): Promise<ServerHealth> {
+  private async probeEntry(
+    entry: ServerEntry,
+    timeoutMs: number,
+    includeTools: boolean,
+  ): Promise<ServerProbeResult> {
+    const name = entry.config.name;
     const startedAt = Date.now();
     try {
       const client = await this.ensureConnected(entry);
-      await withTimeout(
-        client.ping(),
-        this.healthConfig.timeoutMs,
-        `health probe '${entry.config.name}'`,
+      const tools = await withTimeout(
+        client.listTools(),
+        timeoutMs,
+        `tool probe '${name}'`,
       );
+      entry.tools = tools;
       entry.status = 'ready';
       entry.error = undefined;
       entry.health = {
         healthy: true,
         lastChecked: Date.now(),
         latencyMs: Date.now() - startedAt,
+      };
+      return {
+        name,
+        ok: true,
+        toolsCount: tools.length,
+        ...(includeTools
+          ? {
+              tools: tools.map((tool) => ({
+                name: tool.name,
+                description: tool.description ?? '',
+              })),
+            }
+          : {}),
+        latencyMs: Date.now() - startedAt,
+        checkedAt: Date.now(),
       };
     } catch (error) {
       const authRequired = error instanceof OAuthAuthorizationRequiredError;
@@ -347,8 +487,18 @@ export class ServerManager {
           : {}),
       };
       if (!authRequired && isConnectionFailure(error)) await this.fail(entry, error);
+      return {
+        name,
+        ok: false,
+        toolsCount: null,
+        error: authRequired ? '需要授权' : errorMessage(error),
+        ...(authRequired
+          ? { authRequired: (error as OAuthAuthorizationRequiredError).authUrl }
+          : {}),
+        latencyMs: Date.now() - startedAt,
+        checkedAt: Date.now(),
+      };
     }
-    return entry.health as ServerHealth;
   }
 
   private stopHealthMonitor(): void {
@@ -373,6 +523,7 @@ export class ServerManager {
     for (const entry of this.entries.values()) {
       entry.client = undefined;
       entry.connecting = undefined;
+      entry.probing = undefined;
       entry.tools = undefined;
       entry.error = undefined;
       entry.status = 'idle';
@@ -457,6 +608,11 @@ function buildEntries(servers: ServerConfig[]): Map<string, ServerEntry> {
   const entries = new Map<string, ServerEntry>();
   for (const config of servers) entries.set(config.name, { config, status: 'idle' });
   return entries;
+}
+
+function targetOf(config: ServerConfig): string {
+  if (config.url !== undefined) return config.url;
+  return [config.command, ...config.args].filter(Boolean).join(' ');
 }
 
 function isConnectionFailure(error: unknown): boolean {

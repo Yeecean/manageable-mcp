@@ -12,6 +12,65 @@ afterEach(() => {
 });
 
 describe('config parsing', () => {
+  it('parses tags, examples, per-server health checks, and embed summaries', () => {
+    const config = parseConfig(
+      {
+        embedServerSummaries: { enabled: false, maxDescriptionChars: 120 },
+        servers: [
+          {
+            name: 'enriched',
+            description: 'Enriched server',
+            command: 'node',
+            tags: ['files', ' local '],
+            examples: [{ command: 'read_file', description: '读取一个文件' }],
+            healthCheck: { enabled: true, method: 'ping', timeoutMs: 3_000 },
+          },
+        ],
+      },
+      base,
+    );
+
+    expect(config.embedServerSummaries).toEqual({
+      enabled: false,
+      maxDescriptionChars: 120,
+    });
+    expect(config.servers[0]).toMatchObject({
+      tags: ['files', ' local '],
+      examples: [{ command: 'read_file', description: '读取一个文件' }],
+      healthCheck: {
+        enabled: true,
+        method: 'ping',
+        timeoutMs: 3_000,
+        cacheDurationMs: 60_000,
+      },
+    });
+  });
+
+  it('defaults embed summaries on and rejects invalid health check methods', () => {
+    const config = parseConfig(
+      { servers: [{ name: 'echo', description: 'Demo', command: 'node' }] },
+      base,
+    );
+    expect(config.embedServerSummaries).toEqual({ enabled: true });
+    expect(config.servers[0]?.tags).toEqual([]);
+
+    expect(() =>
+      parseConfig(
+        {
+          servers: [
+            {
+              name: 'bad',
+              description: 'Bad',
+              command: 'node',
+              healthCheck: { enabled: true, method: 'wat' },
+            },
+          ],
+        },
+        base,
+      ),
+    ).toThrow(/healthCheck\.method/);
+  });
+
   it('normalizes a local server and resolves cwd relative to the config', () => {
     const config = parseConfig(
       {

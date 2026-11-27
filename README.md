@@ -158,8 +158,9 @@ token。随后重试调用，或使用 `manageable-mcp auth <server> --wait`。
 ### 健康探测
 
 健康探测默认关闭，因此启动和 `list_servers` 绝不会连接下游服务器。可在配置中启用，
-或使用 `--health` 启用。工具活动开始后，监控器会探测已启用的服务器，缓存健康状态，
-并在超过 `idleTimeoutMs` 后休眠。`/health` 只报告已缓存状态，不会触发探测。
+或使用 `--health` 启用。工具活动开始后，监控器会连接已启用的服务器并调用
+`tools/list`，同时缓存工具数量和健康状态，并在超过 `idleTimeoutMs` 后休眠。
+`/health` 只报告已缓存状态，不会触发探测。
 
 ## 运行 HTTP 守护进程
 
@@ -227,11 +228,20 @@ Attach 模式从不读取 `servers.json`，也从不启动下游服务器。它�
 - `POST /api/admin/servers` — 添加。
 - `GET/PUT/DELETE /api/admin/servers/:name` — 读取/更新/删除。
 - `POST /api/admin/servers/:name/toggle` — 启用/禁用。
+- `POST /api/admin/servers/:name/auth` — 检查 OAuth 授权状态并返回授权链接。
+- `POST /api/admin/servers/:name/probe` — 连接单个服务器并刷新工具列表。
+- `GET /api/admin/servers/:name/tools` — 返回该服务器的工具名称和描述。
 - `POST /api/admin/reload` — 从磁盘重载。
-- `POST /api/admin/probe` — 运行健康探测。
+- `POST /api/admin/probe` — 批量检测工具；支持 `names`、`onlyUnknown`、
+  `concurrency` 和 `timeoutMs`，返回 `results` 与
+  `summary: { total, ok, authRequired, failed }`。
 
 API 要求提供已配置的 bearer token。未配置 token 时，仅接受 loopback 客户端。
 配置变更会使用常规解析器校验并以原子方式写入；未知的原始字段会保留。
+
+管理面板会显示每个服务器的类型、目标、标签、工具数量、健康状态和授权类型
+（`OAuth`、`API Key`、`本地`、`自动检测`），并支持状态筛选、复制 MCP 端点、
+单服务器/批量工具检测、工具列表弹窗和 OAuth 授权弹窗。
 
 ## 安全模型
 

@@ -42,6 +42,16 @@
 - [x] 活动驱动的健康监控器
 - [ ] 并发与超时压力测试
 
+## 0.6 — 架构保真补齐
+
+- [x] 探测改为真正调用下游 `tools/list`，回填工具数量与工具摘要
+- [x] 管理 API：单服务器 `auth` / `probe` / `tools`，批量 `onlyUnknown`、
+      `concurrency`、`timeoutMs` 和 `summary`
+- [x] 管理面板：状态筛选、工具列表弹窗、授权类型徽章、OAuth 授权弹窗、
+      复制 MCP 端点、首载自动探测未知工具数
+- [x] 配置字段：`tags`、`examples`、每服务器 `healthCheck`、
+      `embedServerSummaries`（含 `maxDescriptionChars` / `maxCatalogChars`）
+
 ## 非目标
 
 - 发布到 npm、PyPI、crates.io、Docker、Homebrew 或 Git 远程仓库

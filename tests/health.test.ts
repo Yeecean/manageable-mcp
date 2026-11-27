@@ -34,7 +34,7 @@ describe('health probes', () => {
     });
 
     const [health] = await manager.probeAllServers();
-    expect(health).toMatchObject({ healthy: true });
+    expect(health).toMatchObject({ ok: true });
     expect(manager.listServers()[0]?.health).toMatchObject({ healthy: true });
     expect(manager.listServers()[0]?.status).toBe('ready');
   });

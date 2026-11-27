@@ -116,7 +116,7 @@ describe('admin HTTP routing', () => {
     expect(probe.status).toBe(200);
     await expect(probe.json()).resolves.toMatchObject({
       success: true,
-      data: { results: [{ name: 'echo', healthy: true }] },
+      data: { results: [{ name: 'echo', ok: true }] },
     });
   });
 });

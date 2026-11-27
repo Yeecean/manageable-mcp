@@ -203,7 +203,9 @@ try {
   });
   const probeBody = await probe.json();
   assert(
-    probe.status === 200 && probeBody.data.results[0]?.healthy === true,
+    probe.status === 200 &&
+      probeBody.data.results[0]?.ok === true &&
+      probeBody.data.results[0]?.toolsCount === 3,
     `admin probe failed: ${JSON.stringify(probeBody)}`,
   );
 

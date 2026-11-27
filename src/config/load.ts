@@ -4,10 +4,12 @@ import { AppError } from '../core/errors.js';
 import { resolveConfigPath } from './paths.js';
 import type {
   AppConfig,
+  EmbedServerSummariesConfig,
   GlobalPermissionRule,
   GlobalPermissions,
   GroupConfig,
   HealthConfig,
+  HealthCheckConfig,
   HttpTransportConfig,
   LoadedConfig,
   OAuthConfig,
@@ -15,6 +17,7 @@ import type {
   PermissionRule,
   ServerConfig,
   ServerPermissions,
+  ServerExample,
 } from './types.js';
 
 const SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -22,6 +25,8 @@ const GROUP_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const ENV_REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const FILE_REFERENCE = /^\{file:(.*)\}$/;
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 5_000;
+const DEFAULT_HEALTH_CHECK_CACHE_MS = 60_000;
 const DEFAULT_MAX_BODY_BYTES = 4 * 1024 * 1024;
 const DEFAULT_HEALTH_INTERVAL_MS = 30_000;
 const DEFAULT_HEALTH_IDLE_TIMEOUT_MS = 300_000;
@@ -229,6 +234,56 @@ function parseHealth(raw: unknown): HealthConfig {
   };
 }
 
+function parseHealthCheck(raw: unknown, field: string): HealthCheckConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) invalid(`${field} 必须是对象`);
+  const method = raw.method === undefined || raw.method === 'tools/list'
+    ? 'tools/list'
+    : raw.method === 'ping'
+      ? 'ping'
+      : invalid(`${field}.method 必须是 'tools/list' 或 'ping'`);
+  return {
+    enabled: optionalBoolean(raw.enabled, `${field}.enabled`) ?? false,
+    timeoutMs: optionalPositiveInteger(raw.timeoutMs, `${field}.timeoutMs`)
+      ?? DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
+    method,
+    cacheDurationMs: optionalPositiveInteger(raw.cacheDurationMs, `${field}.cacheDurationMs`)
+      ?? DEFAULT_HEALTH_CHECK_CACHE_MS,
+  };
+}
+
+function parseExamples(raw: unknown, field: string): ServerExample[] | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw)) invalid(`${field} 必须是数组`);
+  return raw.map((entry, index) => {
+    if (!isRecord(entry)) invalid(`${field}[${index}] 必须是对象`);
+    const command = optionalString(entry.command, `${field}[${index}].command`);
+    const description = optionalString(entry.description, `${field}[${index}].description`);
+    return {
+      ...(command === undefined ? {} : { command }),
+      ...(description === undefined ? {} : { description }),
+    };
+  });
+}
+
+function parseEmbedServerSummaries(raw: unknown): EmbedServerSummariesConfig {
+  if (raw === undefined) return { enabled: true };
+  if (!isRecord(raw)) invalid('embedServerSummaries 必须是对象');
+  const maxDescriptionChars = optionalPositiveInteger(
+    raw.maxDescriptionChars,
+    'embedServerSummaries.maxDescriptionChars',
+  );
+  const maxCatalogChars = optionalPositiveInteger(
+    raw.maxCatalogChars,
+    'embedServerSummaries.maxCatalogChars',
+  );
+  return {
+    enabled: optionalBoolean(raw.enabled, 'embedServerSummaries.enabled') ?? true,
+    ...(maxDescriptionChars === undefined ? {} : { maxDescriptionChars }),
+    ...(maxCatalogChars === undefined ? {} : { maxCatalogChars }),
+  };
+}
+
 function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig {
   if (!isRecord(raw)) invalid(`servers[${index}] 必须是对象`);
 
@@ -277,6 +332,9 @@ function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig
 
   const permissions = parseServerPermissions(raw.permissions, `servers[${index}].permissions`);
   const oauth = parseOAuth(raw.oauth, `servers[${index}].oauth`, baseDir);
+  const tags = stringArray(raw.tags, `servers[${index}].tags`);
+  const examples = parseExamples(raw.examples, `servers[${index}].examples`);
+  const healthCheck = parseHealthCheck(raw.healthCheck, `servers[${index}].healthCheck`);
 
   return {
     name,
@@ -292,6 +350,9 @@ function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig
     forwardPrompts: optionalBoolean(raw.forwardPrompts, `servers[${index}].forwardPrompts`) ?? false,
     ...(permissions === undefined ? {} : { permissions }),
     ...(oauth === undefined ? {} : { oauth }),
+    tags,
+    ...(examples === undefined ? {} : { examples }),
+    ...(healthCheck === undefined ? {} : { healthCheck }),
   };
 }
 
@@ -387,6 +448,7 @@ export function parseConfig(raw: unknown, sourcePath: string): AppConfig {
     transport: parseTransport(raw.transport, baseDir),
     permissions: parseGlobalPermissions(raw.permissions),
     health: parseHealth(raw.health),
+    embedServerSummaries: parseEmbedServerSummaries(raw.embedServerSummaries),
   };
 }
 

@@ -6,6 +6,7 @@ import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { silentLogger } from '../src/core/logger.js';
 import { ServerManager } from '../src/mcp/manager.js';
 import { createProxyServer } from '../src/mcp/proxy-server.js';
+import { getToolDefinitions } from '../src/mcp/tools.js';
 
 const root = path.resolve(__dirname, '..');
 
@@ -64,5 +65,38 @@ describe('proxy meta-tools', () => {
       },
     });
     expect(echo.content?.[0]).toEqual({ type: 'text', text: 'hello' });
+  });
+
+  it('honors the embedServerSummaries switch in the list_servers description', async () => {
+    const servers = [
+      {
+        name: 'echo',
+        description: 'Demo server',
+        enabled: true,
+        command: process.execPath,
+        args: [path.join(root, 'examples', 'echo-server.mjs')],
+        cwd: root,
+        env: {},
+        headers: {},
+        timeoutMs: 10_000,
+        forwardPrompts: false,
+        tags: [],
+      },
+    ];
+
+    const withCatalog = new ServerManager(servers);
+    const enabledDescription = getToolDefinitions(withCatalog)
+      .find((tool) => tool.name === 'list_servers')?.description ?? '';
+    expect(enabledDescription).toContain('- echo: Demo server');
+
+    const withoutCatalog = new ServerManager(servers, {
+      embedServerSummaries: { enabled: false },
+    });
+    const disabledDescription = getToolDefinitions(withoutCatalog)
+      .find((tool) => tool.name === 'list_servers')?.description ?? '';
+    expect(disabledDescription).not.toContain('- echo: Demo server');
+
+    await withCatalog.closeAll();
+    await withoutCatalog.closeAll();
   });
 });

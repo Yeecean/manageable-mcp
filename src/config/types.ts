@@ -12,6 +12,28 @@ export interface ServerConfig {
   forwardPrompts: boolean;
   permissions?: ServerPermissions;
   oauth?: OAuthConfig;
+  tags: string[];
+  examples?: ServerExample[];
+  healthCheck?: HealthCheckConfig;
+  configError?: string;
+}
+
+export interface ServerExample {
+  command?: string;
+  description?: string;
+}
+
+export interface HealthCheckConfig {
+  enabled: boolean;
+  timeoutMs: number;
+  method: 'tools/list' | 'ping';
+  cacheDurationMs: number;
+}
+
+export interface EmbedServerSummariesConfig {
+  enabled: boolean;
+  maxDescriptionChars?: number;
+  maxCatalogChars?: number;
 }
 
 export interface GroupConfig {
@@ -74,6 +96,7 @@ export interface AppConfig {
   transport: HttpTransportConfig;
   permissions: GlobalPermissions;
   health: HealthConfig;
+  embedServerSummaries: EmbedServerSummariesConfig;
 }
 
 export interface LoadedConfig {

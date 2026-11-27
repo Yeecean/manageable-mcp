@@ -27,9 +27,31 @@ function errorResult(error: unknown): CallToolResult {
 }
 
 function catalog(manager: ServerManager, scope?: ProxyScope): string {
+  const embed = manager.getEmbedServerSummaries();
+  if (!embed.enabled) return '';
   const servers = manager.listServers(scope).filter((server) => server.enabled);
   if (servers.length === 0) return '当前没有已启用的服务器。';
-  return servers.map((server) => `- ${server.name}: ${server.description}`).join('\n');
+  const lines = servers.map(
+    (server) => `- ${server.name}: ${server.description.replace(/\s+/g, ' ')}`,
+  );
+  const text = lines.join('\n');
+  const warnings: string[] = [];
+  if (embed.maxDescriptionChars !== undefined) {
+    const tooLong = servers.filter(
+      (server) => server.description.length > (embed.maxDescriptionChars as number),
+    );
+    if (tooLong.length > 0) {
+      warnings.push(
+        `注意：${tooLong.length} 个服务器的描述超过 ${embed.maxDescriptionChars} 字符，未截断。`,
+      );
+    }
+  }
+  if (embed.maxCatalogChars !== undefined && text.length > embed.maxCatalogChars) {
+    warnings.push(
+      `注意：内嵌目录超过 ${embed.maxCatalogChars} 字符，未截断。`,
+    );
+  }
+  return warnings.length === 0 ? text : `${text}\n\n${warnings.join('\n')}`;
 }
 
 function requireString(value: unknown, field: string): string {
@@ -56,13 +78,16 @@ function optionalObject(value: unknown, field: string): Record<string, unknown> 
 
 export function getToolDefinitions(manager: ServerManager, scope?: ProxyScope): Tool[] {
   const serverCatalog = catalog(manager, scope);
+  const catalogSection = serverCatalog
+    ? `这里直接内嵌已启用服务器目录，无需额外调用工具即可选择：\n\n${serverCatalog}\n\n`
+    : '';
 
   return [
     {
       name: 'list_servers',
       description:
         `列出已配置的 MCP 服务器及其当前状态。` +
-        `这里直接内嵌已启用服务器目录，无需额外调用工具即可选择：\n\n${serverCatalog}\n\n` +
+        catalogSection +
         `此调用不会连接任何下游服务器。需要发现某个服务器的工具时，请使用 list_commands。`,
       inputSchema: {
         type: 'object',
