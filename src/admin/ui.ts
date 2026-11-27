@@ -1049,7 +1049,7 @@ main {
 
   function authLabel(type) {
     if (type === 'oauth') return 'OAuth';
-    if (type === 'api-key') return 'API Key';
+    if (type === 'api-key') return 'API 密钥';
     if (type === 'local') return '本地';
     return '自动检测';
   }

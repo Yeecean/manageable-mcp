@@ -660,7 +660,7 @@ function detectAuthType(
   if (authHeaders.length > 0) {
     return {
       type: 'api-key',
-      detail: `静态 Header：${authHeaders.join(', ')}`,
+        detail: `静态请求头：${authHeaders.join(', ')}`,
     };
   }
 

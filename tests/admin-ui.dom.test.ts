@@ -202,7 +202,7 @@ describe('admin UI probe merging', () => {
           server({
             name: 'alpha',
             authType: 'api-key',
-            authDetail: '静态 Header：X-Trace',
+            authDetail: '静态请求头：X-Trace',
             status: 'idle',
             error: '之前的错误',
           }),
