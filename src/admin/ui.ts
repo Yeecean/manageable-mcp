@@ -466,6 +466,47 @@ main {
   font-size: 0.78rem;
   overflow-wrap: anywhere;
 }
+.card-error-collapsible {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+}
+.card-error-collapsible summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.card-error-collapsible summary::-webkit-details-marker { display: none; }
+.card-error-collapsible summary:focus-visible {
+  outline: 2px solid var(--danger);
+  outline-offset: -2px;
+}
+.error-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.error-summary-action { font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.error-summary-close { display: none; }
+.card-error-collapsible[open] .error-summary-open { display: none; }
+.card-error-collapsible[open] .error-summary-close { display: inline; }
+.error-detail {
+  max-height: min(42vh, 420px);
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-top: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  color: var(--danger);
+  font-size: 0.74rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .card-actions { display: flex; gap: 7px; margin-top: auto; padding-top: 2px; }
 .tool-list { display: grid; gap: 10px; max-height: 52vh; overflow: auto; padding-right: 4px; }
 .tool-row {
@@ -987,6 +1028,35 @@ main {
     return '自动检测';
   }
 
+  function isLongError(text) {
+    var value = String(text);
+    return value.length > 160 || value.split(/\r?\n/).length > 4;
+  }
+
+  function compactErrorText(text) {
+    var value = String(text).replace(/\s+/g, ' ').trim();
+    return value.length > 140 ? value.slice(0, 140) + '…' : value;
+  }
+
+  function buildErrorNotice(text) {
+    var message = String(text);
+    if (!isLongError(message)) return el('p', 'card-error', message);
+
+    var details = el('details', 'card-error card-error-collapsible');
+    var summary = el('summary');
+    summary.title = '展开或收起完整错误信息';
+    summary.appendChild(el('span', 'error-summary-text', compactErrorText(message)));
+
+    var action = el('span', 'error-summary-action');
+    action.appendChild(el('span', 'error-summary-open', '展开详情'));
+    action.appendChild(el('span', 'error-summary-close', '收起'));
+    summary.appendChild(action);
+
+    details.appendChild(summary);
+    details.appendChild(el('pre', 'error-detail', message));
+    return details;
+  }
+
   function healthClass(server) {
     if (server.enabled === false) return 'muted';
     if (server.health && server.health.healthy === true) return 'ok';
@@ -1134,7 +1204,7 @@ main {
     }
 
     var problem = server.error || server.configError || (server.health && server.health.error);
-    if (problem) card.appendChild(el('p', 'card-error', problem));
+    if (problem) card.appendChild(buildErrorNotice(problem));
 
     var meta = el('div', 'card-meta');
     var probing = state.probing[server.name] === true;
