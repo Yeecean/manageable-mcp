@@ -75,11 +75,13 @@ export interface ServerProbeResult {
 export interface ProbeOptions {
   timeoutMs?: number;
   includeTools?: boolean;
+  method?: 'tools/list' | 'ping';
 }
 
 export interface ProbeBatchOptions {
   concurrency?: number;
   timeoutMs?: number;
+  method?: 'tools/list' | 'ping';
 }
 
 export interface ManagerOptions {
@@ -358,12 +360,16 @@ export class ServerManager {
   async probeAllServers(names?: string[]): Promise<ServerProbeResult[]> {
     this.assertOpen();
     const selected = names === undefined ? undefined : new Set(names);
-    const selectedNames = Array.from(this.entries.values())
-      .filter(
-        (entry) => entry.config.enabled && (selected === undefined || selected.has(entry.config.name)),
-      )
-      .map((entry) => entry.config.name);
-    return await this.probeServers(selectedNames, { timeoutMs: this.healthConfig.timeoutMs });
+    const entries = Array.from(this.entries.values()).filter(
+      (entry) => entry.config.enabled && (selected === undefined || selected.has(entry.config.name)),
+    );
+    return await mapWithConcurrency(entries, 3, async (entry) => {
+      try {
+        return await this.probeHealth(entry);
+      } catch (error) {
+        return failedProbe(entry.config.name, error);
+      }
+    });
   }
 
   async probeServer(name: string, options: ProbeOptions = {}): Promise<ServerProbeResult> {
@@ -384,7 +390,13 @@ export class ServerManager {
       const timeoutMs = options.timeoutMs !== undefined && options.timeoutMs > 0
         ? options.timeoutMs
         : this.healthConfig.timeoutMs;
-      const probe = this.probeEntry(entry, timeoutMs, options.includeTools === true);
+      const method = options.method ?? 'tools/list';
+      const probe = this.probeEntry(
+        entry,
+        timeoutMs,
+        options.includeTools === true,
+        method,
+      );
       entry.probing = probe;
       try {
         return await probe;
@@ -402,35 +414,20 @@ export class ServerManager {
     if (unique.length === 0) return [];
 
     const concurrency = Math.max(1, Math.min(options.concurrency ?? 3, 8));
-    const results: ServerProbeResult[] = new Array(unique.length);
-    let cursor = 0;
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        const index = cursor;
-        cursor += 1;
-        if (index >= unique.length) return;
-        const name = unique[index] as string;
-        try {
-          results[index] = await this.probeServer(name, { timeoutMs: options.timeoutMs });
-        } catch (error) {
-          results[index] = {
-            name,
-            ok: false,
-            toolsCount: null,
-            error: sanitizeErrorMessage(errorMessage(error)),
-            checkedAt: Date.now(),
-          };
-        }
+    return await mapWithConcurrency(unique, concurrency, async (name) => {
+      try {
+        return await this.probeServer(name, {
+          timeoutMs: options.timeoutMs,
+          ...(options.method === undefined ? {} : { method: options.method }),
+        });
+      } catch (error) {
+        return failedProbe(name, error);
       }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(concurrency, unique.length) }, () => worker()),
-    );
-    return results;
+    });
   }
 
   touchActivity(): void {
-    if (!this.healthConfig.enabled || this.closing) return;
+    if (!this.isHealthMonitoringEnabled() || this.closing) return;
     if (!this.healthMonitorRunning) {
       this.healthMonitorRunning = true;
       void this.probeAllServers().catch(() => undefined);
@@ -489,11 +486,27 @@ export class ServerManager {
     entry: ServerEntry,
     timeoutMs: number,
     includeTools: boolean,
+    method: 'tools/list' | 'ping',
   ): Promise<ServerProbeResult> {
     const name = entry.config.name;
     const startedAt = Date.now();
     try {
       const client = await this.ensureConnected(entry);
+      if (method === 'ping' && !includeTools) {
+        await withTimeout(
+          client.ping(),
+          timeoutMs,
+          `health ping '${name}'`,
+        );
+        this.markReady(entry, Date.now() - startedAt);
+        return {
+          name,
+          ok: true,
+          toolsCount: entry.tools?.length ?? null,
+          latencyMs: Date.now() - startedAt,
+          checkedAt: Date.now(),
+        };
+      }
       const tools = await withTimeout(
         client.listTools(),
         timeoutMs,
@@ -542,6 +555,39 @@ export class ServerManager {
         checkedAt: Date.now(),
       };
     }
+  }
+
+  private async probeHealth(entry: ServerEntry): Promise<ServerProbeResult> {
+    const healthCheck = entry.config.healthCheck;
+    if (healthCheck !== undefined && !healthCheck.enabled) {
+      return {
+        name: entry.config.name,
+        ok: true,
+        toolsCount: entry.tools?.length ?? null,
+        checkedAt: Date.now(),
+      };
+    }
+
+    if (
+      healthCheck !== undefined &&
+      healthCheck.cacheDurationMs > 0 &&
+      entry.health !== undefined &&
+      Date.now() - entry.health.lastChecked < healthCheck.cacheDurationMs
+    ) {
+      return healthSnapshot(entry);
+    }
+
+    return await this.probeServer(entry.config.name, {
+      timeoutMs: healthCheck?.timeoutMs ?? this.healthConfig.timeoutMs,
+      method: healthCheck?.method ?? 'tools/list',
+    });
+  }
+
+  private isHealthMonitoringEnabled(): boolean {
+    if (this.healthConfig.enabled) return true;
+    return Array.from(this.entries.values()).some(
+      (entry) => entry.config.enabled && entry.config.healthCheck?.enabled === true,
+    );
   }
 
   private stopHealthMonitor(): void {
@@ -717,6 +763,51 @@ function buildEntries(servers: ServerConfig[]): Map<string, ServerEntry> {
   const entries = new Map<string, ServerEntry>();
   for (const config of servers) entries.set(config.name, { config, status: 'idle' });
   return entries;
+}
+
+function failedProbe(name: string, error: unknown): ServerProbeResult {
+  return {
+    name,
+    ok: false,
+    toolsCount: null,
+    error: sanitizeErrorMessage(errorMessage(error)),
+    checkedAt: Date.now(),
+  };
+}
+
+function healthSnapshot(entry: ServerEntry): ServerProbeResult {
+  const health = entry.health;
+  return {
+    name: entry.config.name,
+    ok: health?.healthy === true,
+    toolsCount: entry.tools?.length ?? null,
+    ...(health?.error === undefined ? {} : { error: health.error }),
+    ...(health?.authRequired === true && health.authUrl !== undefined
+      ? { authRequired: health.authUrl }
+      : {}),
+    ...(health?.latencyMs === undefined ? {} : { latencyMs: health.latencyMs }),
+    checkedAt: health?.lastChecked ?? Date.now(),
+  };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  operation: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  const concurrency = Math.max(1, Math.min(limit, items.length));
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      results[index] = await operation(items[index] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return results;
 }
 
 function targetOf(config: ServerConfig): string {

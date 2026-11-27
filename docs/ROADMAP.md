@@ -51,7 +51,7 @@
       复制 MCP 端点、首载自动探测未知工具数
 - [x] 配置字段：`tags`、`examples`、每服务器 `healthCheck`、
       `embedServerSummaries`（含 `maxDescriptionChars` / `maxCatalogChars`）。
-      `healthCheck` 当前完成解析与校验；后台监控统一使用全局 `health` 超时。
+      `healthCheck` 已接入后台监控：控制启用、`tools/list`/`ping`、超时和缓存。
 
 ## 0.7 — 本地保真复查（当前）
 
@@ -62,6 +62,8 @@
 - [x] 管理探测回填 `health`、工具数量、延迟和授权状态
 - [x] 授权检查强制绕过工具缓存，OAuth 成功后清理旧授权状态
 - [x] 管理面板并发刷新、工具弹窗竞态、错误折叠状态和双击门禁
+- [x] 每服务器 `healthCheck` 真正控制后台探测方法、超时和缓存；管理工具探测固定
+      执行 `tools/list`
 - [x] 下游错误脱敏、URL/命令目标脱敏、非 loopback 强制 token
 - [x] Windows `.cmd`/`.bat` 下游进程树清理
 

@@ -58,4 +58,83 @@ describe('health probes', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(manager.listServers()[0]?.health).toBeUndefined();
   });
+
+  it('uses the per-server ping method without loading tools', async () => {
+    manager = new ServerManager([
+      {
+        ...echo(),
+        healthCheck: {
+          enabled: true,
+          method: 'ping',
+          timeoutMs: 5_000,
+          cacheDurationMs: 60_000,
+        },
+      },
+    ]);
+
+    const [health] = await manager.probeAllServers();
+    expect(health).toMatchObject({ ok: true, toolsCount: null });
+    expect(manager.listServers()[0]?.status).toBe('ready');
+    expect(manager.listServers()[0]?.toolCount).toBeUndefined();
+  });
+
+  it('reuses the per-server health cache until it expires', async () => {
+    manager = new ServerManager([
+      {
+        ...echo(),
+        healthCheck: {
+          enabled: true,
+          method: 'ping',
+          timeoutMs: 5_000,
+          cacheDurationMs: 60_000,
+        },
+      },
+    ]);
+
+    const [first] = await manager.probeAllServers();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const [second] = await manager.probeAllServers();
+    expect(second?.checkedAt).toBe(first?.checkedAt);
+  });
+
+  it('skips a server whose per-server health check is disabled', async () => {
+    manager = new ServerManager([
+      {
+        ...echo(),
+        command: 'definitely-not-a-real-command',
+        args: [],
+        healthCheck: {
+          enabled: false,
+          method: 'tools/list',
+          timeoutMs: 100,
+          cacheDurationMs: 0,
+        },
+      },
+    ]);
+
+    const [health] = await manager.probeAllServers();
+    expect(health).toMatchObject({ ok: true, toolsCount: null });
+    expect(manager.listServers()[0]?.status).toBe('idle');
+  });
+
+  it('starts the monitor when a per-server health check is enabled', async () => {
+    manager = new ServerManager([
+      {
+        ...echo(),
+        healthCheck: {
+          enabled: true,
+          method: 'ping',
+          timeoutMs: 5_000,
+          cacheDurationMs: 0,
+        },
+      },
+    ]);
+
+    manager.touchActivity();
+    const deadline = Date.now() + 5_000;
+    while (manager.listServers()[0]?.health === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(manager.listServers()[0]?.health).toMatchObject({ healthy: true });
+  });
 });

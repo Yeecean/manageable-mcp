@@ -163,8 +163,11 @@ token。随后重试调用，或使用 `manageable-mcp auth <server> --wait`。
 `tools/list`，同时缓存工具数量和健康状态，并在超过 `idleTimeoutMs` 后休眠。
 `/health` 只报告已缓存状态，不会触发探测。
 
-每服务器的 `healthCheck` 字段会被解析和校验；当前后台监控仍统一使用全局
-`health.timeoutMs`，单服务器/批量管理探测则由请求的 `timeoutMs` 控制。
+每服务器的 `healthCheck` 可以覆盖全局默认值：`enabled: false` 表示该服务器不参与
+后台健康探测；`method` 选择 `tools/list` 或 `ping`；`timeoutMs` 覆盖全局超时；
+`cacheDurationMs` 控制健康结果复用时间。没有配置 `healthCheck` 的服务器沿用全局
+`health.timeoutMs` 和 `tools/list`。管理面板的单服务器/批量工具探测始终执行
+`tools/list`，不会被 `method: "ping"` 改变。
 
 管理面板首次打开时会对“已启用且工具数未知”的服务器自动发起一次探测。该探测会
 真实连接下游服务器，服务器较多时可能需要几十秒；页面会逐张卡片显示进度和结果。
