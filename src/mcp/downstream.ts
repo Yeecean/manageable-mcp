@@ -6,12 +6,14 @@ import {
   StreamableHTTPClientTransport,
   StreamableHTTPError,
 } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type {
-  CallToolResult,
-  GetPromptResult,
-  Prompt,
-  Tool,
+import {
+  CallToolResultSchema,
+  type CallToolResult,
+  type GetPromptResult,
+  type Prompt,
+  type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
 import {
   AppError,
   OAuthAuthorizationRequiredError,
@@ -23,11 +25,19 @@ import type { ServerConfig } from '../config/types.js';
 import { createOAuthProvider } from '../oauth/index.js';
 import { sanitizeErrorMessage, sanitizeStructuredValue } from '../oauth/sanitize.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
+import { normalizeDownstreamToolResult } from './result.js';
 
 const MAX_TOOL_PAGES = 100;
 const MAX_PROMPT_PAGES = 100;
 const TASKKILL_TIMEOUT_MS = 5_000;
 const execFileAsync = promisify(execFile);
+const PERMISSIVE_CALL_TOOL_RESULT_SCHEMA = z.object({
+  content: z.array(z.unknown()).optional(),
+  structuredContent: z.unknown().optional(),
+  isError: z.boolean().optional(),
+  _meta: z.unknown().optional(),
+  toolResult: z.unknown().optional(),
+}).loose() as unknown as typeof CallToolResultSchema;
 
 export interface DownstreamConnection {
   readonly promptsSupported: boolean;
@@ -259,15 +269,18 @@ export async function connectDownstream(
 
     async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<CallToolResult> {
       try {
-        const result = await withTimeout(
-          client.callTool({ name, arguments: args }, undefined, {
+        const rawResult = await withTimeout(
+          client.callTool({ name, arguments: args }, PERMISSIVE_CALL_TOOL_RESULT_SCHEMA, {
             timeout: config.timeoutMs,
             ...(signal === undefined ? {} : { signal }),
           }),
           config.timeoutMs,
           `在 '${config.name}' 上执行 tools/call '${name}'`,
-        ) as unknown as CallToolResult;
-        return sanitizeToolErrorResult(result, secrets);
+        ) as unknown;
+        return sanitizeToolErrorResult(
+          normalizeDownstreamToolResult(rawResult),
+          secrets,
+        );
       } catch (error) {
         throwDownstreamError(
           error,

@@ -63,6 +63,21 @@ export class AdminConfigStore {
     return (await this.snapshot()).servers;
   }
 
+  async readText(): Promise<string> {
+    try {
+      return await fs.promises.readFile(this.configPath, 'utf8');
+    } catch (error) {
+      throw new AdminError(
+        500,
+        `Cannot read config file '${this.configPath}': ${errorMessage(error)}`,
+      );
+    }
+  }
+
+  async restoreText(text: string): Promise<void> {
+    await this.writeSerialized(text);
+  }
+
   async get(name: string): Promise<RawServerConfig> {
     const document = await this.read();
     const server = findServer(document, name);
@@ -187,7 +202,10 @@ export class AdminConfigStore {
   }
 
   private async write(document: RawDocument): Promise<void> {
-    const serialized = stringifyDocument(document);
+    await this.writeSerialized(stringifyDocument(document));
+  }
+
+  private async writeSerialized(serialized: string): Promise<void> {
     const tempPath = path.join(
       path.dirname(this.configPath),
       `.${path.basename(this.configPath)}.${process.pid}.${randomUUID()}.tmp`,

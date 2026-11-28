@@ -274,8 +274,9 @@ export class AdminController {
       '请求体必须是服务器配置对象',
     );
 
-    const view = await this.withMutation(async () => {
+    const view = await this.mutate(async (markPersisted) => {
       const raw = await this.store.add(input);
+      markPersisted();
       await this.reloadManager('服务器已保存，但运行中的管理器重新加载失败');
       return describeServer(raw, this.summaryMap().get(nameOf(raw)));
     });
@@ -293,8 +294,9 @@ export class AdminController {
       '请求体必须是服务器配置对象',
     );
 
-    const view = await this.withMutation(async () => {
+    const view = await this.mutate(async (markPersisted) => {
       const raw = await this.store.update(name, input);
+      markPersisted();
       await this.reloadManager('服务器已保存，但运行中的管理器重新加载失败');
       return describeServer(raw, this.summaryMap().get(name));
     });
@@ -303,8 +305,9 @@ export class AdminController {
   }
 
   private async deleteServer(res: http.ServerResponse, name: string): Promise<void> {
-    await this.withMutation(async () => {
+    await this.mutate(async (markPersisted) => {
       await this.store.remove(name);
+      markPersisted();
       await this.reloadManager('服务器已删除，但运行中的管理器重新加载失败');
     });
     sendJson(res, 200, { success: true, data: { removed: name } });
@@ -323,8 +326,9 @@ export class AdminController {
       throw new AdminError(400, '字段 "enabled" 必须是布尔值');
     }
 
-    const view = await this.withMutation(async () => {
+    const view = await this.mutate(async (markPersisted) => {
       const raw = await this.store.setEnabled(name, body.enabled as boolean);
+      markPersisted();
       await this.reloadManager('服务器已更新，但运行中的管理器重新加载失败');
       return describeServer(raw, this.summaryMap().get(name));
     });
@@ -379,7 +383,10 @@ export class AdminController {
   }
 
   private async probeServerDetail(res: http.ServerResponse, name: string): Promise<void> {
-    await this.store.get(name);
+    const raw = await this.store.get(name);
+    if (raw.enabled === false) {
+      throw new AdminError(409, `服务器 “${name}” 已停用，请先启用后再检测`);
+    }
     try {
       const result = await this.manager.probeServer(name, {
         includeTools: true,
@@ -436,7 +443,9 @@ export class AdminController {
     res: http.ServerResponse,
   ): Promise<void> {
     await readJsonBody(req, this.maxBodyBytes);
-    const loaded = await this.withMutation(() => this.reloadManager());
+    const loaded = await this.withMutation(() =>
+      this.reloadManager('配置重新加载失败', 400),
+    );
     sendJson(res, 200, {
       success: true,
       data: {
@@ -488,10 +497,27 @@ export class AdminController {
     }
 
     const summaries = this.manager.listServers();
+    const summariesByName = new Map(
+      summaries.map((server) => [server.name, server]),
+    );
     const enabledNames = summaries.filter((server) => server.enabled).map((server) => server.name);
-    let names = requested === undefined
-      ? enabledNames
-      : enabledNames.filter((name) => requested.includes(name));
+    let names: string[];
+    if (requested === undefined) {
+      names = enabledNames;
+    } else {
+      const uniqueRequested = Array.from(new Set(requested));
+      const unknown = uniqueRequested.filter((name) => !summariesByName.has(name));
+      if (unknown.length > 0) {
+        throw new AdminError(404, `未知服务器：${unknown.join('、')}`);
+      }
+      const disabled = uniqueRequested.filter(
+        (name) => summariesByName.get(name)?.enabled === false,
+      );
+      if (disabled.length > 0) {
+        throw new AdminError(409, `服务器已停用：${disabled.join('、')}`);
+      }
+      names = uniqueRequested;
+    }
     if (onlyUnknown && requested === undefined) {
       const unknown = new Set(
         summaries
@@ -532,7 +558,39 @@ export class AdminController {
     return enqueueMutation(this.configPath, task);
   }
 
-  private async reloadManager(messagePrefix = '配置重新加载失败'): Promise<LoadedConfig> {
+  private async mutate<T>(
+    task: (markPersisted: () => void) => Promise<T>,
+  ): Promise<T> {
+    return await this.withMutation(async () => {
+      const original = await this.store.readText();
+      let persisted = false;
+      const markPersisted = (): void => {
+        persisted = true;
+      };
+      try {
+        return await task(markPersisted);
+      } catch (error) {
+        if (persisted) {
+          try {
+            await this.store.restoreText(original);
+            await this.reloadManager();
+          } catch (rollbackError) {
+            process.stderr.write(
+              `manageable-mcp 管理配置回滚失败：${sanitizeErrorMessage(
+                errorMessage(rollbackError),
+              )}\n`,
+            );
+          }
+        }
+        throw error;
+      }
+    });
+  }
+
+  private async reloadManager(
+    messagePrefix = '配置重新加载失败',
+    status = 500,
+  ): Promise<LoadedConfig> {
     try {
       const loaded = loadConfig(this.configPath);
       const health = this.manager.isHealthForcedOn()
@@ -548,7 +606,7 @@ export class AdminController {
       });
       return loaded;
     } catch (error) {
-      throw new AdminError(500, `${messagePrefix}: ${errorMessage(error)}`);
+      throw new AdminError(status, `${messagePrefix}: ${errorMessage(error)}`);
     }
   }
 }
@@ -625,7 +683,9 @@ function describeServer(
 }
 
 const AUTH_HEADER_PATTERN =
-  /^(authorization|proxy-authorization|x-api-key|api-key|x-auth-token|x-access-token|token)$/i;
+  /^(authorization|proxy-authorization|x-api-key|api-key|x-auth-token|x-access-token|x-api-token|x-subscription-key|x-functions-key|x-goog-api-key|ocp-apim-subscription-key|token)$/i;
+const AUTH_HEADER_HINT_PATTERN =
+  /(auth|key|token|secret|credential|signature|subscription)/i;
 const AUTH_QUERY_PATTERN =
   /^(api[_-]?key|apikey|key|token|access[_-]?token|auth|subscription[_-]?key)$/i;
 
@@ -656,11 +716,13 @@ function detectAuthType(
   }
 
   const headerNames = isRecord(raw.headers) ? Object.keys(raw.headers) : [];
-  const authHeaders = headerNames.filter((name) => AUTH_HEADER_PATTERN.test(name));
+  const authHeaders = headerNames.filter(
+    (name) => AUTH_HEADER_PATTERN.test(name) || AUTH_HEADER_HINT_PATTERN.test(name),
+  );
   if (authHeaders.length > 0) {
     return {
       type: 'api-key',
-        detail: `静态请求头：${authHeaders.join(', ')}`,
+      detail: `静态请求头：${authHeaders.join(', ')}`,
     };
   }
 

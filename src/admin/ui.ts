@@ -1000,7 +1000,14 @@ main {
   }
 
   function toast(message, kind) {
-    var node = el('div', 'toast ' + (kind || ''), message);
+    var text = String(message);
+    var long = isLongError(text);
+    if (long && kind === 'bad') {
+      showNotice(text);
+      text = compactErrorText(text);
+    }
+    var node = el('div', 'toast ' + (kind || ''), text);
+    if (long) node.title = String(message);
     els.toasts.appendChild(node);
     window.setTimeout(function () {
       node.classList.add('leaving');
@@ -1290,18 +1297,23 @@ main {
       server.enabled !== false
     ) {
       var authNeeded = server.status === 'auth' || server.authRequired === true;
+      var authSupported = authNeeded ||
+        server.authType === 'oauth' ||
+        server.authType === 'unknown';
       var authText = authNeeded
         ? (server.authRequired === true ? '重新授权' : '授权')
         : ((server.authType === 'unknown' || server.authType === 'api-key') ? '检测授权' : '授权');
-      var authButton = el('button', 'button ghost small', authText);
-      authButton.type = 'button';
-      authButton.title = authNeeded
-        ? '重新检查登录状态并获取 OAuth 授权链接'
-        : '检测该服务器是否需要 OAuth，并在需要时获取授权链接';
-      authButton.addEventListener('click', function () {
-        onAuthorize(server, authButton);
-      });
-      actions.appendChild(authButton);
+      if (authSupported) {
+        var authButton = el('button', 'button ghost small', authText);
+        authButton.type = 'button';
+        authButton.title = authNeeded
+          ? '重新检查登录状态并获取 OAuth 授权链接'
+          : '检测该服务器是否需要 OAuth，并在需要时获取授权链接';
+        authButton.addEventListener('click', function () {
+          onAuthorize(server, authButton);
+        });
+        actions.appendChild(authButton);
+      }
     }
 
     var edit = el('button', 'button ghost small', '编辑 JSON');
@@ -1379,16 +1391,26 @@ main {
   }
 
   function renderFailure(error) {
-    renderEmpty(
-      '无法连接管理 API',
-      error && error.message ? error.message : '请确认 HTTP 传输层正在运行。',
-      false,
-    );
+    var message = error && error.message
+      ? error.message
+      : '请确认 HTTP 传输层正在运行。';
+    els.serverList.textContent = '';
+    var wrap = el('div', 'empty-state');
+    wrap.appendChild(el('div', 'empty-icon', '!'));
+    wrap.appendChild(el('h3', null, '无法连接管理 API'));
+    wrap.appendChild(buildErrorNotice(message, 'load-failure', 'empty-error'));
+    els.serverList.appendChild(wrap);
   }
 
   function updateAuthButton() {
     els.authBtn.classList.toggle('has-token', Boolean(state.token));
     els.authBtn.title = state.token ? '当前标签页已设置 API 令牌' : '设置 API 令牌';
+  }
+
+  function clearToolCaches() {
+    state.toolsCache = {};
+    state.toolsRequestSeq += 1;
+    state.toolsServer = null;
   }
 
   function load(quiet) {
@@ -1466,6 +1488,7 @@ main {
       body: JSON.stringify({ enabled: desired }),
     }).then(function () {
       toast(server.name + (desired ? ' 已启用' : ' 已停用'), 'ok');
+      clearToolCaches();
       return load(true);
     }).catch(function (error) {
       toast(error.message || '切换失败', 'bad');
@@ -1484,6 +1507,7 @@ main {
     api('/api/admin/servers/' + encodeURIComponent(server.name), { method: 'DELETE' })
       .then(function () {
         toast('已删除 ' + server.name, 'ok');
+        clearToolCaches();
         return load(true);
       })
       .catch(function (error) {
@@ -1555,6 +1579,7 @@ main {
       .then(function () {
         els.editorDialog.close();
         toast(editing ? '已更新 ' + editing : '服务器已添加', 'ok');
+        clearToolCaches();
         return load(true);
       })
       .catch(function (error) {
@@ -1573,6 +1598,7 @@ main {
           ? '（' + body.data.serverCount + ' 个服务器）'
           : '';
         toast('配置已重新加载' + count, 'ok');
+        clearToolCaches();
         return load(true);
       })
       .catch(function (error) {
@@ -1855,6 +1881,7 @@ main {
           onRequired(data.authUrl, data.diagnostic);
         } else {
           toast('该服务器无需授权，已可正常使用', 'ok');
+          clearToolCaches();
           load(true);
         }
       })

@@ -86,6 +86,14 @@ function timerValue(value: unknown, field: string): number | undefined {
   return parsed;
 }
 
+function cacheDurationValue(value: unknown, field: string): number | undefined {
+  const parsed = optionalNonNegativeInteger(value, field);
+  if (parsed !== undefined && parsed > MAX_TIMER_MS) {
+    invalid(`${field} 必须 <= ${MAX_TIMER_MS}`);
+  }
+  return parsed;
+}
+
 function stringArray(value: unknown, field: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
@@ -266,7 +274,7 @@ function parseHealthCheck(raw: unknown, field: string): HealthCheckConfig | unde
     timeoutMs: timerValue(raw.timeoutMs, `${field}.timeoutMs`)
       ?? DEFAULT_HEALTH_CHECK_TIMEOUT_MS,
     method,
-    cacheDurationMs: timerValue(raw.cacheDurationMs, `${field}.cacheDurationMs`)
+    cacheDurationMs: cacheDurationValue(raw.cacheDurationMs, `${field}.cacheDurationMs`)
       ?? DEFAULT_HEALTH_CHECK_CACHE_MS,
   };
 }
@@ -312,17 +320,43 @@ function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig
   }
 
   const description = requireString(raw.description, `servers[${index}].description`);
-  const command = optionalString(raw.command, `servers[${index}].command`);
+  const rawCommand = raw.command;
+  if (
+    rawCommand !== undefined &&
+    typeof rawCommand !== 'string' &&
+    !Array.isArray(rawCommand)
+  ) {
+    invalid(`servers[${index}].command 必须是字符串或字符串数组`);
+  }
   const url = optionalString(raw.url, `servers[${index}].url`);
-  if ((command === undefined) === (url === undefined)) {
+  if ((rawCommand === undefined) === (url === undefined)) {
     invalid(`servers[${index}] 必须且只能设置 command 或 url 之一`);
   }
 
   const rawCwd = optionalString(raw.cwd, `servers[${index}].cwd`);
   const cwd = rawCwd === undefined ? undefined : path.resolve(baseDir, expandValue(rawCwd, baseDir, `servers[${index}].cwd`));
-  const args = stringArray(raw.args, `servers[${index}].args`).map((arg, argIndex) =>
+  let args = stringArray(raw.args, `servers[${index}].args`).map((arg, argIndex) =>
     expandValue(arg, baseDir, `servers[${index}].args[${argIndex}]`),
   );
+  let command: string | undefined;
+  if (typeof rawCommand === 'string') {
+    command = expandValue(rawCommand, baseDir, `servers[${index}].command`);
+  } else if (Array.isArray(rawCommand)) {
+    if (rawCommand.length === 0) {
+      invalid(`servers[${index}].command 数组不能为空`);
+    }
+    if (rawCommand.some((part) => typeof part !== 'string' || part.length === 0)) {
+      invalid(`servers[${index}].command 必须是非空字符串数组`);
+    }
+    const [executable, ...arrayArgs] = rawCommand as string[];
+    command = expandValue(executable as string, baseDir, `servers[${index}].command[0]`);
+    args = [
+      ...arrayArgs.map((arg, argIndex) =>
+        expandValue(arg, baseDir, `servers[${index}].command[${argIndex + 1}]`),
+      ),
+      ...args,
+    ];
+  }
   const env = expandRecord(stringRecord(raw.env, `servers[${index}].env`), baseDir, `servers[${index}].env`);
   const headers = expandRecord(
     stringRecord(raw.headers, `servers[${index}].headers`),
@@ -330,7 +364,6 @@ function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig
     `servers[${index}].headers`,
   );
 
-  const resolvedCommand = command === undefined ? undefined : expandValue(command, baseDir, `servers[${index}].command`);
   const resolvedUrl = url === undefined ? undefined : expandValue(url, baseDir, `servers[${index}].url`);
   if (resolvedUrl !== undefined) {
     let parsed: URL;
@@ -359,7 +392,7 @@ function parseServer(raw: unknown, index: number, baseDir: string): ServerConfig
     name,
     description,
     enabled: optionalBoolean(raw.enabled, `servers[${index}].enabled`) ?? true,
-    ...(resolvedCommand === undefined ? {} : { command: resolvedCommand }),
+    ...(command === undefined ? {} : { command }),
     args,
     ...(cwd === undefined ? {} : { cwd }),
     env,

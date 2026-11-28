@@ -228,7 +228,7 @@ describe('admin UI probe merging', () => {
 
     const window = bootAdmin({ fetch: fetchMock });
     await waitFor(() => Boolean(cardFor(window, 'alpha')));
-    expect(buttonByText(cardFor(window, 'alpha'), '检测授权')).toBeTruthy();
+    expect(buttonByText(cardFor(window, 'alpha'), '检测授权')).toBeUndefined();
 
     buttonByText(cardFor(window, 'alpha'), '检测').click();
 

@@ -42,6 +42,28 @@ describe('ServerManager', () => {
     expect(result.content?.[0]).toEqual({ type: 'text', text: '5' });
   });
 
+  it('normalizes edge-case downstream results before returning them', async () => {
+    manager = new ServerManager([
+      echoConfig({
+        command: process.execPath,
+        args: [path.join(root, 'examples', 'result-edge-server.mjs')],
+      }),
+    ]);
+
+    const unknown = await manager.callTool('echo', 'unknown', {});
+    expect(unknown.content?.[0]).toMatchObject({ type: 'text' });
+    expect(unknown.content?.[0]?.text).toContain('custom/thing');
+    expect(unknown.content?.[0]?.text).toContain('"answer":42');
+
+    const legacy = await manager.callTool('echo', 'legacy', {});
+    expect(legacy.content?.[0]?.text).toContain('"legacy":true');
+
+    const extension = await manager.callTool('echo', 'extension', {});
+    expect(extension._meta?.manageableMcpDownstreamExtensions).toEqual({
+      customField: { preserved: true },
+    });
+  });
+
   it('rejects unknown and disabled servers', async () => {
     manager = new ServerManager([
       echoConfig({ name: 'disabled', enabled: false }),

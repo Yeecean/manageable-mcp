@@ -137,4 +137,34 @@ describe('health probes', () => {
     }
     expect(manager.listServers()[0]?.health).toMatchObject({ healthy: true });
   });
+
+  it('does not probe servers without an opt-in when global health is disabled', async () => {
+    manager = new ServerManager([
+      {
+        ...echo(),
+        name: 'opted-in',
+        healthCheck: {
+          enabled: true,
+          method: 'ping',
+          timeoutMs: 5_000,
+          cacheDurationMs: 0,
+        },
+      },
+      {
+        ...echo(),
+        name: 'not-opted-in',
+      },
+    ]);
+
+    manager.touchActivity();
+    const optedIn = () => manager?.listServers().find((server) => server.name === 'opted-in');
+    const notOptedIn = () => manager?.listServers().find((server) => server.name === 'not-opted-in');
+    const deadline = Date.now() + 5_000;
+    while (optedIn()?.health === undefined && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    expect(optedIn()?.health).toMatchObject({ healthy: true });
+    expect(notOptedIn()?.health).toBeUndefined();
+  });
 });

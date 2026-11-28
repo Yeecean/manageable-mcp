@@ -98,6 +98,32 @@ describe('config parsing', () => {
     expect(config.transport).toMatchObject({ host: '127.0.0.1', port: 8080, path: '/mcp' });
   });
 
+  it('accepts an array command and a zero health-cache duration', () => {
+    const config = parseConfig(
+      {
+        servers: [
+          {
+            name: 'array-command',
+            description: 'Array command',
+            command: ['node', 'server.mjs'],
+            args: ['--flag'],
+            healthCheck: {
+              enabled: true,
+              cacheDurationMs: 0,
+            },
+          },
+        ],
+      },
+      base,
+    );
+
+    expect(config.servers[0]).toMatchObject({
+      command: 'node',
+      args: ['server.mjs', '--flag'],
+      healthCheck: { enabled: true, cacheDurationMs: 0 },
+    });
+  });
+
   it('expands environment variables and secret files', () => {
     vi.stubEnv('DEMO_TOKEN', 'abc123');
     vi.stubEnv('OAUTH_ID', 'oauth-client');

@@ -250,6 +250,14 @@ export class ServerManager {
         this.markReady(entry, Date.now() - startedAt);
         return result;
       } catch (error) {
+        if (error instanceof OAuthAuthorizationRequiredError) {
+          await this.fail(entry, error);
+          throw this.connectionError(error, `连接服务器 '${name}' 失败`, name);
+        }
+        if (error instanceof AppError && error.code === 'AUTH_REQUIRED') {
+          await this.fail(entry, error);
+          throw error;
+        }
         const connectionFailure = isConnectionFailure(error);
         if (connectionFailure) await this.fail(entry, error);
         throw new AppError(
@@ -430,9 +438,9 @@ export class ServerManager {
     if (!this.isHealthMonitoringEnabled() || this.closing) return;
     if (!this.healthMonitorRunning) {
       this.healthMonitorRunning = true;
-      void this.probeAllServers().catch(() => undefined);
+      void this.probeBackgroundServers().catch(() => undefined);
       this.healthTimer = setInterval(() => {
-        void this.probeAllServers().catch(() => undefined);
+        void this.probeBackgroundServers().catch(() => undefined);
       }, this.healthConfig.intervalMs);
       this.healthTimer.unref();
     }
@@ -448,6 +456,7 @@ export class ServerManager {
     const wasClosing = this.closing;
     this.closing = true;
     this.stopHealthMonitor();
+    await this.waitForOperations();
 
     const nextEntries = buildEntries(servers);
     const entriesToClose: ServerEntry[] = [];
@@ -498,13 +507,14 @@ export class ServerManager {
           timeoutMs,
           `health ping '${name}'`,
         );
-        this.markReady(entry, Date.now() - startedAt);
+        const checkedAt = Date.now();
+        this.markReady(entry, checkedAt - startedAt, checkedAt);
         return {
           name,
           ok: true,
           toolsCount: entry.tools?.length ?? null,
-          latencyMs: Date.now() - startedAt,
-          checkedAt: Date.now(),
+          latencyMs: checkedAt - startedAt,
+          checkedAt,
         };
       }
       const tools = await withTimeout(
@@ -513,7 +523,8 @@ export class ServerManager {
         `tool probe '${name}'`,
       );
       entry.tools = tools;
-      this.markReady(entry, Date.now() - startedAt);
+      const checkedAt = Date.now();
+      this.markReady(entry, checkedAt - startedAt, checkedAt);
       return {
         name,
         ok: true,
@@ -526,8 +537,8 @@ export class ServerManager {
               })),
             }
           : {}),
-        latencyMs: Date.now() - startedAt,
-        checkedAt: Date.now(),
+        latencyMs: checkedAt - startedAt,
+        checkedAt,
       };
     } catch (error) {
       const authRequired = error instanceof OAuthAuthorizationRequiredError;
@@ -588,6 +599,26 @@ export class ServerManager {
     return Array.from(this.entries.values()).some(
       (entry) => entry.config.enabled && entry.config.healthCheck?.enabled === true,
     );
+  }
+
+  private async probeBackgroundServers(): Promise<void> {
+    const entries = Array.from(this.entries.values()).filter(
+      (entry) => entry.config.enabled && this.shouldProbeInBackground(entry),
+    );
+    await mapWithConcurrency(entries, 3, async (entry) => {
+      try {
+        await this.probeHealth(entry);
+      } catch {
+        // 单个服务器的后台探测失败不能阻断其他服务器。
+      }
+    });
+  }
+
+  private shouldProbeInBackground(entry: ServerEntry): boolean {
+    if (this.healthConfig.enabled) {
+      return entry.config.healthCheck?.enabled !== false;
+    }
+    return entry.config.healthCheck?.enabled === true;
   }
 
   private stopHealthMonitor(): void {
@@ -726,12 +757,12 @@ export class ServerManager {
     }
   }
 
-  private markReady(entry: ServerEntry, latencyMs?: number): void {
+  private markReady(entry: ServerEntry, latencyMs?: number, checkedAt = Date.now()): void {
     entry.status = 'ready';
     entry.error = undefined;
     entry.health = {
       healthy: true,
-      lastChecked: Date.now(),
+      lastChecked: checkedAt,
       ...(latencyMs === undefined ? {} : { latencyMs }),
     };
   }

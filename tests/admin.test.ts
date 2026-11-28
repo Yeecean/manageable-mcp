@@ -497,6 +497,27 @@ describe('AdminController', () => {
     expect(echo.health).toMatchObject({ healthy: true });
   });
 
+  it('restores the previous config when a mutation cannot be applied at runtime', async () => {
+    const base = await startAdapter(adminToken);
+    const before = fs.readFileSync(configPath, 'utf8');
+    vi.spyOn(controller as unknown as { reloadManager: () => Promise<unknown> }, 'reloadManager')
+      .mockRejectedValueOnce(new Error('forced reload failure'));
+
+    const response = await fetch(base + '/api/admin/servers', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({
+        name: 'rollback-me',
+        description: 'Should not persist',
+        command: process.execPath,
+        args: [echoPath],
+      }),
+    });
+    expect(response.status).toBe(500);
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+    expect(manager.listServers().some((server) => server.name === 'rollback-me')).toBe(false);
+  });
+
   it('forces a live auth check and accepts a case-insensitive bearer scheme', async () => {
     const base = await startAdapter(adminToken);
     const spy = vi.spyOn(manager, 'listTools').mockResolvedValue([
@@ -608,6 +629,18 @@ describe('Admin server inspection', () => {
           description: 'Auth state without static config',
           url: 'https://auth.example.com/mcp',
         },
+        {
+          name: 'custom-key',
+          description: 'Custom subscription key header',
+          url: 'https://custom.example.com/mcp',
+          headers: { 'X-Subscription-Key': 'literal' },
+        },
+        {
+          name: 'custom-static-header',
+          description: 'Custom static credential header',
+          url: 'https://custom-static.example.com/mcp',
+          headers: { 'X-Custom-Credential': 'literal' },
+        },
       ],
     });
     const loaded = loadConfig(configPath);
@@ -628,6 +661,14 @@ describe('Admin server inspection', () => {
     const body = await overview.json() as any;
     const byName = new Map(body.data.servers.map((server: any) => [server.name, server]));
     expect(byName.get('plain')).toMatchObject({ authType: 'unknown' });
+    expect(byName.get('custom-key')).toMatchObject({
+      authType: 'api-key',
+      authDetail: expect.stringContaining('X-Subscription-Key'),
+    });
+    expect(byName.get('custom-static-header')).toMatchObject({
+      authType: 'api-key',
+      authDetail: expect.stringContaining('X-Custom-Credential'),
+    });
     expect(byName.get('needs-auth')).toMatchObject({
       status: 'auth',
       authType: 'oauth',
@@ -731,10 +772,10 @@ describe('Admin server inspection', () => {
       method: 'POST',
       headers: authHeaders(),
     });
-    expect(probe.status).toBe(502);
+    expect(probe.status).toBe(409);
     await expect(probe.json()).resolves.toMatchObject({
       success: false,
-      error: { message: expect.stringContaining('已禁用') },
+      error: { message: expect.stringContaining('已停用') },
     });
   });
 
@@ -803,5 +844,26 @@ describe('Admin server inspection', () => {
       headers: authHeaders(),
     });
     expect(unknown.status).toBe(404);
+
+    const unknownBatch = await fetch(base + '/api/admin/probe', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ names: ['missing'] }),
+    });
+    expect(unknownBatch.status).toBe(404);
+
+    const disableEcho = await fetch(base + '/api/admin/servers/echo/toggle', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ enabled: false }),
+    });
+    expect(disableEcho.status).toBe(200);
+
+    const disabledBatch = await fetch(base + '/api/admin/probe', {
+      method: 'POST',
+      headers: authHeaders(true),
+      body: JSON.stringify({ names: ['echo'] }),
+    });
+    expect(disabledBatch.status).toBe(409);
   });
 });
