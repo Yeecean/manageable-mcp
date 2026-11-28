@@ -8,9 +8,10 @@ prompt 转发、策略规则、健康探测、OAuth、管理面板和一次性�
 - 不提供 `lazy-mcp` 别名、`lazy_mcp` 包或 `LAZY_MCP_*` 变量；
 - 不提供 `_meta.lazyMcp*` 键，也不查找旧配置目录；
 - 不包含包发布、Docker、Homebrew、Rust 或 Python 打包链路；
-- 不提供任何形式的兼容层。
+- 不提供旧品牌、旧目录、旧环境变量或发布兼容层；四个元工具保留的旧字段契约见下文。
 
-包版本：`0.2.0`。路线图 0.1–0.6 已完成，0.7 是本轮本地保真复查；
+包版本：`0.2.0`。技术路线图 0.1–0.7 已完成（0.7 为本地保真复查）；
+产品规划中的客户端一键接入、MCP 市场和运行模式分级尚未开始；
 路线图编号不是 npm 发布版本（本项目不发布）。
 
 ## 环境要求
@@ -254,7 +255,7 @@ API 要求提供已配置的 bearer token。未配置 token 时，仅接受 loop
 配置变更会使用常规解析器校验并以原子方式写入；未知的原始字段会保留。
 
 管理面板会显示每个服务器的类型、目标、标签、工具数量、健康状态和授权类型
-（`OAuth`、`API Key`、`本地`、`自动检测`），并支持状态筛选、复制 MCP 端点、
+（`OAuth`、`API 密钥`、`本地`、`自动检测`），并支持状态筛选、复制 MCP 端点、
 单服务器/批量工具检测、工具列表弹窗和 OAuth 授权弹窗。
 超长错误、保存失败和 OAuth 诊断会折叠为可展开详情，默认只显示一行摘要，
 展开后可在限高区域内滚动查看完整文本。
@@ -285,8 +286,10 @@ npm run smoke:http
 npm run test:e2e
 ```
 
-源码布局和设计规则见 [ARCHITECTURE.md](./ARCHITECTURE.md)。分阶段重写计划见
-[docs/ROADMAP.md](./docs/ROADMAP.md)。工程规则和必需工作流见
+源码布局和设计规则见 [ARCHITECTURE.md](./ARCHITECTURE.md)。重写技术批次见
+[docs/ROADMAP.md](./docs/ROADMAP.md)，产品目标、验收口径和阶段状态见
+[docs/PRODUCT_ROADMAP.md](./docs/PRODUCT_ROADMAP.md)，旧配置迁移见
+[docs/CONFIG_MIGRATION.md](./docs/CONFIG_MIGRATION.md)。工程规则和必需工作流见
 [RULE.md](./RULE.md)。
 
 ## 相对旧代码树的破坏性变更

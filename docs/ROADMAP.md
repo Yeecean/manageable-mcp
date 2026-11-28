@@ -38,9 +38,9 @@
 
 - [x] prompt 转发（按服务器选择启用）
 - [x] 分页工具与 prompt 发现
-- [ ] 未知内容块规范化
+- [x] 未知内容块规范化
 - [x] 活动驱动的健康监控器
-- [ ] 并发与超时压力测试
+- [x] 并发与超时压力测试
 
 ## 0.6 — 架构保真补齐
 
@@ -53,7 +53,7 @@
       `embedServerSummaries`（含 `maxDescriptionChars` / `maxCatalogChars`）。
       `healthCheck` 已接入后台监控：控制启用、`tools/list`/`ping`、超时和缓存。
 
-## 0.7 — 本地保真复查（当前）
+## 0.7 — 本地保真复查（已完成）
 
 - [x] 配置值任意位置的 `{file:...}` 展开，包括远程 URL 查询串
 - [x] 元工具旧契约：`list_servers.filter`、`list_commands.servers[]`、
