@@ -76,6 +76,8 @@ describe('admin HTTP routing', () => {
 
     const unauthorized = await fetch(`${base}/api/admin`);
     expect(unauthorized.status).toBe(401);
+    const unauthorizedClients = await fetch(`${base}/api/admin/clients`);
+    expect(unauthorizedClients.status).toBe(401);
 
     const overview = await fetch(`${base}/api/admin`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -88,6 +90,23 @@ describe('admin HTTP routing', () => {
         groups: { demo: { servers: ['echo'] } },
       },
     });
+    const clients = await fetch(`${base}/api/admin/clients`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(clients.status).toBe(200);
+    const clientBody = await clients.json() as { data: Array<{ client: string }> };
+    expect(clientBody.data.map((client) => client.client)).toEqual(['claude', 'codex', 'opencode', 'cursor']);
+    const invalidClient = await fetch(`${base}/api/admin/clients/unknown/install`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(invalidClient.status).toBe(404);
+    const unsafeClientPost = await fetch(`${base}/api/admin/clients/cursor/install`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'text/plain' },
+      body: '{}',
+    });
+    expect(unsafeClientPost.status).toBe(415);
   });
 
   it('reloads and probes through the admin API', async () => {

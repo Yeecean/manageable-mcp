@@ -331,6 +331,13 @@ main {
   border-radius: var(--radius);
   background: var(--panel);
 }
+.client-panel { margin-bottom: 26px; padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.client-panel summary { cursor: pointer; font-size: 1.2rem; font-weight: 700; }
+.client-panel p { margin: 8px 0 14px; color: var(--muted); font-size: 0.85rem; }
+.client-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); }
+.client-info { display: grid; gap: 2px; }
+.client-info span { color: var(--muted); font-size: 0.82rem; }
+.client-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .section-heading {
   display: flex;
   align-items: baseline;
@@ -749,6 +756,12 @@ main {
 
   <div id="notice" class="notice" role="alert" hidden></div>
 
+  <details id="clientPanel" class="client-panel">
+    <summary>客户端一键接入</summary>
+    <p>为本机客户端配置当前代理。接入前会检查启动，修改前会备份原文件；修改后请重启对应客户端。</p>
+    <div id="clientList" aria-live="polite">展开后加载客户端状态。</div>
+  </details>
+
   <section id="groupsPanel" class="groups-panel" hidden>
     <div class="section-heading">
       <h2>服务器组</h2>
@@ -977,6 +990,56 @@ main {
         return body;
       });
     });
+  }
+
+  function loadClients() {
+    els.clientList.textContent = '正在检查客户端...';
+    return api('/api/admin/clients').then(function (body) {
+      if (!body || !Array.isArray(body.data)) throw new Error('客户端状态格式错误');
+      els.clientList.textContent = '';
+      body.data.forEach(function (client) {
+        var row = el('div', 'client-row');
+        var info = el('div', 'client-info');
+        var names = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode 2.x', cursor: 'Cursor' };
+        info.appendChild(el('strong', null, names[client.client] || client.client));
+        var status = el('span', null, client.state + ' · ' + (client.executableFound ? '已找到程序' : '未在 PATH 找到程序'));
+        status.title = client.configPath;
+        info.appendChild(status);
+        row.appendChild(info);
+        var actions = el('div', 'client-actions');
+        [
+          [client.state === '名称冲突' ? 'replace' : 'install', client.state === '名称冲突' ? '替换同名项' : (client.state === '已接入' ? '更新' : '接入'), client.state === '配置无效'],
+          ['verify', '验证', client.state !== '已接入'],
+          ['uninstall', '移除', client.state !== '已接入'],
+          ['rollback', '回滚', false],
+        ].forEach(function (item) {
+          var button = el('button', 'button small', item[1]);
+          button.type = 'button';
+          button.disabled = item[2];
+          button.addEventListener('click', function () { clientAction(client.client, item[0], button); });
+          actions.appendChild(button);
+        });
+        row.appendChild(actions);
+        els.clientList.appendChild(row);
+      });
+    }).catch(function (error) {
+      els.clientList.textContent = error.message || '无法读取客户端状态。';
+    });
+  }
+
+  function clientAction(client, action, button) {
+    if (button.dataset.busy === '1') return;
+    setBusy(button, true);
+    api('/api/admin/clients/' + encodeURIComponent(client) + '/' + (action === 'replace' ? 'install' : action), {
+      method: 'POST', body: action === 'replace' ? '{"replace":true}' : '{}',
+    })
+      .then(function () {
+        var messages = { install: '配置已写入，代理启动检查通过', replace: '同名配置已替换，原文件已备份', verify: '代理启动检查通过', uninstall: '已移除接入', rollback: '已回滚配置' };
+        toast(messages[action], 'ok');
+        return loadClients();
+      })
+      .catch(function (error) { toast(error.message || '客户端操作失败', 'bad'); })
+      .finally(function () { setBusy(button, false); });
   }
 
   function renderLongText(container, message, key, className) {
@@ -1994,6 +2057,9 @@ main {
   }
 
   function bindEvents() {
+    els.clientPanel.addEventListener('toggle', function () {
+      if (els.clientPanel.open) loadClients();
+    });
     els.themeToggle.addEventListener('click', function () {
       applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
     });
@@ -2082,6 +2148,8 @@ main {
       probeBtn: byId('probeBtn'),
       addBtn: byId('addBtn'),
       notice: byId('notice'),
+      clientPanel: byId('clientPanel'),
+      clientList: byId('clientList'),
       groupsPanel: byId('groupsPanel'),
       groupList: byId('groupList'),
       serverCount: byId('serverCount'),

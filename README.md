@@ -11,7 +11,7 @@ prompt 转发、策略规则、健康探测、OAuth、管理面板和一次性�
 - 不提供旧品牌、旧目录、旧环境变量或发布兼容层；四个元工具保留的旧字段契约见下文。
 
 包版本：`0.2.0`。技术路线图 0.1–0.7 已完成（0.7 为本地保真复查）；
-产品规划中的客户端一键接入、MCP 市场和运行模式分级尚未开始；
+产品规划中的客户端一键接入已实现基础流程，真实客户端验收尚未全部完成；MCP 市场和运行模式分级尚未开始；
 路线图编号不是 npm 发布版本（本项目不发布）。
 
 ## 环境要求
@@ -204,6 +204,23 @@ token，否则拒绝启动；空主机名、`/health/` 以及 `/admin`、`/api/a
 直到调用 `describe_commands`。`list_servers` 同时保留旧契约字段
 `tools_count`、`examples`、`tags` 和 `auth_required`，并返回
 `{ servers, version }`；过滤会先应用当前 group scope。
+目录描述的撰写方法和代表性任务评测见 [docs/CATALOG_GUIDE.md](./docs/CATALOG_GUIDE.md)。
+
+## 客户端接入
+
+管理面板提供可折叠的“客户端一键接入”，也可通过命令行使用：
+
+```powershell
+node dist/index.js connect status
+node dist/index.js connect install codex
+node dist/index.js connect verify codex
+node dist/index.js connect rollback codex
+```
+
+支持 Claude Code、Codex、OpenCode 2.x、Cursor 的配置写入、更新、移除和回滚。
+接入前检查代理启动并备份客户端原文件；同名条目默认不覆盖，需明确选择替换。
+真实客户端的验证范围、分组、共享运行时和备份位置见
+[docs/CLIENT_INTEGRATION.md](./docs/CLIENT_INTEGRATION.md)。
 
 ## 一次性 CLI
 
@@ -239,6 +256,8 @@ Attach 模式从不读取 `servers.json`，也从不启动下游服务器。它�
 
 - `GET /admin` — 无依赖的浏览器面板（不使用 CDN）。
 - `GET /api/admin` — 概览。
+- `GET /api/admin/clients` — 本机客户端配置状态。
+- `POST /api/admin/clients/:client/:action` — 接入、代理验证、移除或回滚；请求体为 JSON。
 - `POST /api/admin/servers` — 添加。
 - `GET/PUT/DELETE /api/admin/servers/:name` — 读取/更新/删除。
 - `POST /api/admin/servers/:name/toggle` — 启用/禁用。

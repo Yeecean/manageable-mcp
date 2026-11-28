@@ -128,6 +128,53 @@ function checkboxFor(window: Window, name: string): any {
   return cardFor(window, name)?.querySelector('.switch input');
 }
 
+describe('客户端接入面板', () => {
+  it('展开后读取状态，接入成功后刷新', async () => {
+    let installed = false;
+    let installs = 0;
+    const fetchMock = vi.fn((url: unknown, options: { method?: string } = {}) => {
+      if (String(url) === '/api/admin') return ok(adminEnvelope([]));
+      if (String(url) === '/api/admin/clients/cursor/install' && options.method === 'POST') {
+        installs += 1;
+        installed = true;
+        return ok({ success: true });
+      }
+      if (String(url) === '/api/admin/clients') {
+        return ok({ success: true, data: [{ client: 'cursor', state: installed ? '已接入' : '未配置', executableFound: true }] });
+      }
+      return ok({ success: true, data: {} });
+    });
+    const window = bootAdmin({ fetch: fetchMock });
+    const panel = window.document.getElementById('clientPanel') as any;
+    panel.open = true;
+    panel.dispatchEvent(new window.Event('toggle'));
+    await waitFor(() => Boolean(buttonByText(panel, '接入')));
+    buttonByText(panel, '接入').click();
+    await waitFor(() => Boolean(buttonByText(panel, '更新')));
+    expect(installs).toBe(1);
+    expect(panel.textContent).toContain('已接入');
+  });
+
+  it('同名冲突时通过明确的替换操作提交', async () => {
+    const fetchMock = vi.fn((url: unknown) => {
+      if (String(url) === '/api/admin') return ok(adminEnvelope([]));
+      if (String(url) === '/api/admin/clients') {
+        return ok({ success: true, data: [{ client: 'codex', state: '名称冲突', executableFound: true }] });
+      }
+      return ok({ success: true, data: {} });
+    });
+    const window = bootAdmin({ fetch: fetchMock });
+    const panel = window.document.getElementById('clientPanel') as any;
+    panel.open = true;
+    panel.dispatchEvent(new window.Event('toggle'));
+    await waitFor(() => Boolean(buttonByText(panel, '替换同名项')));
+    buttonByText(panel, '替换同名项').click();
+    await waitFor(() => fetchMock.mock.calls.some((call) => String(call[0]) === '/api/admin/clients/codex/install'));
+    const call = fetchMock.mock.calls.find((entry) => String(entry[0]) === '/api/admin/clients/codex/install') as any;
+    expect(JSON.parse(call[1].body)).toEqual({ replace: true });
+  });
+});
+
 describe('admin UI probe merging', () => {
   it('writes successful health, keeps OAuth, and clears stale errors', async () => {
     const checkedAt = Date.UTC(2026, 0, 2, 3, 4, 5);

@@ -33,6 +33,10 @@ src/
     one-shot.ts            call/list-commands/describe/auth client
     attach.ts              stdio-to-HTTP bridge
     sanitize.ts            URL/error redaction
+  integrations/
+    config.ts              客户端配置定位、格式保留式编辑和校验
+    service.ts             接入检查、备份、锁、原子写入与回滚
+    cli.ts                 客户端接入命令
   admin/
     store.ts               raw config CRUD and atomic writes
     controller.ts          /admin and /api/admin routes
@@ -64,6 +68,8 @@ src/
 9. `closeAll()` 会阻止新连接、等待在途的发现/调用/prompt 操作、关闭所有客户端，
    然后清空缓存。配置重载会先关闭并重建配置发生变化的服务器，未变化的服务器复用
    原有连接、工具数和健康状态；重载期间暂停接受新的 manager 操作。
+10. 客户端接入通过独立模块编辑客户端的 JSONC/TOML，先验证代理启动，备份原文件并检查并发修改；
+    默认拒绝覆盖同名的其他服务器。管理 API 复用同一实现，只有显式操作才写客户端配置。
 
 ## HTTP 路由
 

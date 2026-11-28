@@ -67,6 +67,16 @@
 - [x] 下游错误脱敏、URL/命令目标脱敏、非 loopback 强制 token
 - [x] Windows `.cmd`/`.bat` 下游进程树清理
 
+## 0.8 — 客户端接入与目录评测（部分完成）
+
+- [x] 客户端配置定位、格式保留式编辑、冲突保护、备份和单步回滚
+- [x] 管理面板及 CLI 接入、移除、代理启动验证
+- [x] 目录描述规范、只读检查、18 个代表性任务及评分工具
+- [ ] 真实 Agent 目录选择评测
+- [ ] OpenCode 独立模式和 Cursor 图形界面连接验证
+
+具体证据和限制见 [阶段记录](./PHASE2_RECORD.md)。
+
 ## 非目标
 
 - 发布到 npm、PyPI、crates.io、Docker、Homebrew 或 Git 远程仓库

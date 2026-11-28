@@ -1,0 +1,32 @@
+{
+  "servers": [
+    { "name": "web_search", "description": "搜索公开网页、新闻和资料，返回链接与摘要；不能操作网页上的按钮或表单。" },
+    { "name": "browser", "description": "打开网页并操作浏览器，可点击、输入、截图和读取已登录页面；不提供本地文件管理。" },
+    { "name": "library_docs", "description": "查询软件库和开发框架的官方文档与代码示例；不负责普通新闻或实时资讯搜索。" },
+    { "name": "local_files", "description": "列出、读取和编辑用户授权目录中的本地文件；不操作网站或邮件账户。" },
+    { "name": "email", "description": "搜索、阅读、起草和发送邮件；不负责创建日历事件或网页自动操作。" },
+    { "name": "calendar", "description": "查询日程、查找空闲时间和创建日历事件；不发送普通电子邮件。" },
+    { "name": "maps", "description": "查询地点、地址、地理编码和行车路线；不搜索软件开发文档。" },
+    { "name": "calculator", "description": "执行数学计算和单位换算；不提供天气、网络或操作系统管理。" }
+  ],
+  "cases": [
+    { "id": "01", "task": "查找最新 React useEffect 的官方用法。", "expected": "library_docs" },
+    { "id": "02", "task": "搜索本周关于电动汽车的新报道。", "expected": "web_search" },
+    { "id": "03", "task": "打开网页并点击登录后的下载按钮。", "expected": "browser" },
+    { "id": "04", "task": "查看我收到的最近一封会议邮件。", "expected": "email" },
+    { "id": "05", "task": "查看我周五下午有哪些会议。", "expected": "calendar" },
+    { "id": "06", "task": "计算 317 乘以 48，再除以 12。", "expected": "calculator" },
+    { "id": "07", "task": "查从武汉站到武汉大学的驾车路线。", "expected": "maps" },
+    { "id": "08", "task": "打开本地工作目录中的 README 文件。", "expected": "local_files" },
+    { "id": "09", "task": "查找 FastAPI 接收文件上传的文档示例。", "expected": "library_docs" },
+    { "id": "10", "task": "在我的日历中创建明天的项目讨论会。", "expected": "calendar" },
+    { "id": "11", "task": "给同事起草一封解释会议延期的邮件。", "expected": "email" },
+    { "id": "12", "task": "读取网页中当前登录账户看到的订单列表。", "expected": "browser" },
+    { "id": "13", "task": "搜索公开网页中关于武汉大学的介绍。", "expected": "web_search" },
+    { "id": "14", "task": "在用户授权的本地目录中新建笔记文件。", "expected": "local_files" },
+    { "id": "15", "task": "把 25 摄氏度换算为华氏度。", "expected": "calculator" },
+    { "id": "16", "task": "把某个街道地址转换成经纬度。", "expected": "maps" },
+    { "id": "17", "task": "修改这台电脑的防火墙设置。", "expected": null },
+    { "id": "18", "task": "重启远程 Linux 服务器的系统服务。", "expected": null }
+  ]
+}

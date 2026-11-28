@@ -13,6 +13,15 @@ import type {
   ServerSummary,
 } from '../mcp/manager.js';
 import { sanitizeErrorMessage } from '../oauth/sanitize.js';
+import { CLIENTS, type ClientName } from '../integrations/config.js';
+import {
+  createLaunchSpec,
+  installIntegration,
+  integrationStatus,
+  rollbackIntegration,
+  uninstallIntegration,
+  verifyIntegration,
+} from '../integrations/service.js';
 import {
   AdminConfigStore,
   AdminError,
@@ -171,6 +180,51 @@ export class AdminController {
     }
     const segments = rawSegments.map(decodeSegment);
     const first = segments[0];
+
+    if (first === 'clients' && segments.length === 1) {
+      requireMethod(req, res, ['GET']);
+      const clients = await Promise.all(CLIENTS.map((client) => integrationStatus({ client })));
+      sendJson(res, 200, { success: true, data: clients });
+      return;
+    }
+
+    if (first === 'clients' && segments.length === 3) {
+      requireMethod(req, res, ['POST']);
+      const client = segments[1];
+      const action = segments[2];
+      if (!CLIENTS.includes(client as ClientName) ||
+          !['install', 'verify', 'uninstall', 'rollback'].includes(action as string)) {
+        throw new AdminError(404, '未找到客户端操作');
+      }
+      if ((req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() !== 'application/json') {
+        throw new AdminError(415, '客户端操作需要 JSON 请求');
+      }
+      const body = await readJsonBody(req, this.maxBodyBytes);
+      if (typeof body !== 'object' || body === null || Array.isArray(body) ||
+          Object.keys(body).some((key) => key !== 'replace') ||
+          ('replace' in body && (action !== 'install' || typeof body.replace !== 'boolean'))) {
+        throw new AdminError(400, '客户端操作请求体无效');
+      }
+      const options = { client: client as ClientName };
+      try {
+        if (action === 'install') {
+          await installIntegration(
+            options,
+            createLaunchSpec({ config: this.configPath }),
+            'replace' in body && body.replace === true,
+          );
+        } else if (action === 'verify') await verifyIntegration(options);
+        else if (action === 'uninstall') await uninstallIntegration(options);
+        else await rollbackIntegration(options);
+      } catch (error) {
+        if (error instanceof AppError) {
+          throw new AdminError(error.code === 'SERVER_UNAVAILABLE' ? 503 : 400, error.message);
+        }
+        throw error;
+      }
+      sendJson(res, 200, { success: true, data: await integrationStatus(options) });
+      return;
+    }
 
     if (first === 'servers' && segments.length === 1) {
       requireMethod(req, res, ['POST']);

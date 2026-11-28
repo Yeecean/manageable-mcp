@@ -19,6 +19,8 @@ import { refreshGroupScope, resolveGroupScope, type ProxyScope } from './mcp/pro
 import { closeAllOAuthCallbackServers } from './oauth/index.js';
 import { startHttpServer } from './transports/http.js';
 import { startStdioServer } from './transports/stdio.js';
+import { runIntegrationCli } from './integrations/cli.js';
+import { runCatalogCli } from './catalog/check.js';
 import { PACKAGE_NAME, VERSION } from './version.js';
 
 type TransportKind = 'stdio' | 'http';
@@ -45,6 +47,8 @@ function printHelp(): void {
   ${PACKAGE_NAME} list-commands <server> [options]
   ${PACKAGE_NAME} describe <server> <command...> [options]
   ${PACKAGE_NAME} auth <server> [--wait] [options]
+  ${PACKAGE_NAME} connect <status|install|verify|uninstall|rollback> [客户端] [options]
+  ${PACKAGE_NAME} catalog check [--config <path>] [--json]
 
 守护进程选项：
   --config <path>       servers.json 路径
@@ -222,6 +226,14 @@ async function runAttach(flags: Map<string, string>, logger: Logger): Promise<vo
 }
 
 export async function main(argv: string[]): Promise<void> {
+  if (argv[0] === 'catalog') {
+    runCatalogCli(argv.slice(1));
+    return;
+  }
+  if (argv[0] === 'connect') {
+    await runIntegrationCli(argv.slice(1));
+    return;
+  }
   if (argv[0] && ONE_SHOT_COMMANDS.has(argv[0])) {
     try {
       const command = parseOneShotCommand(argv);
